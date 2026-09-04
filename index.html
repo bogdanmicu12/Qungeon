@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#ffffff">
+    <title>Qungeon</title>
+    <link rel="icon" href="./assets/character.png" type="image/png">
+    <link rel="stylesheet" href="./web/styles.css">
+    <link rel="stylesheet" href="https://pyscript.net/releases/2026.6.2/core.css">
+    <script type="module" src="https://pyscript.net/releases/2026.6.2/core.js"></script>
+  </head>
+  <body>
+    <main id="game-shell" aria-busy="true">
+      <canvas
+        id="canvas"
+        width="800"
+        height="600"
+        tabindex="0"
+        aria-label="Qungeon game"
+      ></canvas>
+      <div id="loading" role="status">Loading Qungeon...</div>
+      <div id="error" role="alert" hidden></div>
+    </main>
+    <script
+      type="py-game"
+      src="./web/main.py"
+      config="./web/pyscript.json"
+      target="canvas"
+    ></script>
+  </body>
+</html>

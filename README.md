@@ -10,37 +10,60 @@ https://github.com/quantumlib/unitary
 
 Game examples can be found on this page and explanation on how to make use of the library.
 
-# How to Play
+# Play in the browser
+
+The browser loads the original Python game code, assets, and levels directly.
+Only the small browser adapter and the required Unitary Alpha modules live in
+`web/`. There is no application backend, database, login, or save service.
+
+Serve it locally from the repository root:
+
+```bash
+py -3.13 -m http.server 8000
+```
+
+Open <http://localhost:8000>. A different starting level can be selected with a
+URL such as <http://localhost:8000/?level=5>.
+
+For production, serve the repository root from any HTTPS static-file host with
+`index.html` as the entry point. No build step or server-side Python process is
+required.
+
+# Desktop development
 
 ## 1. Install
 
-Requires Python 3.8 or higher.
+Requires Python 3.10-3.13. On Windows, Python 3.13 is recommended; Python
+3.14 is currently too new for some of the game's scientific dependencies.
 
 ```bash
-python3 -m venv QungeonEnv        # create the environment
-source QungeonEnv/bin/activate    # activate it
-pip install -r requirements.txt   # install dependencies
+py -3.13 -m venv QungeonEnv313           # create the environment
+source QungeonEnv313/Scripts/activate    # activate it in Git Bash
+python -m pip install --upgrade pip setuptools wheel
+python -m pip install -r requirements.txt
 ```
 
 ## 2. Launch
 
-Run from the repo root — all asset and level paths are relative.
+Run from the repo root - all asset and level paths are relative.
 
 ```bash
-source QungeonEnv/bin/activate
+source QungeonEnv313/Scripts/activate
 python Qungeon.py        # start at level 1
 python Qungeon.py 5      # start at level 5
 ```
 
 An invalid or nonexistent level number exits with an error message instead of starting.
 
-## 3. Goal
+# How to Play
+
+## Goal
 
 Reach the **END** tile. Pillars (quantum objects) block your path. Each pillar is a qubit,
 and you can only walk through one when it is in a pure |0> state. Apply gates to collapse
 the pillars out of your way.
 
-## 4. Controls
+## Controls
 
 | Input | Action |
 |---|---|
@@ -50,7 +73,7 @@ the pillars out of your way.
 | Mouse drag | Drag a gate from the hotbar onto a pillar |
 | Mouse hover | Hover a pillar to draw entanglement lines to its partners |
 
-## 5. Using gates
+## Using gates
 
 Gates live in the hotbar at the bottom of the screen. You start each level with some, and
 pick up more by walking into loot boxes.
@@ -72,7 +95,7 @@ applies to the control pillar only — the target can be anywhere on the map.
 | `CNOT` | Controlled flip: flips the target when the control is \|1> |
 | `CHAD` | Controlled Hadamard: superposes the target when the control is \|1> |
 
-## 6. Reading a pillar
+## Reading a pillar
 
 The pillar's tint tells you its state:
 

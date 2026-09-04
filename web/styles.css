@@ -1,0 +1,59 @@
+:root {
+  color-scheme: light;
+  font-family: system-ui, sans-serif;
+  background: #fff;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  width: 100%;
+  min-height: 100%;
+  margin: 0;
+}
+
+body {
+  min-height: 100dvh;
+  overflow: hidden;
+}
+
+#game-shell {
+  position: relative;
+  display: grid;
+  width: 100vw;
+  min-height: 100dvh;
+  place-items: center;
+  background: #fff;
+}
+
+#canvas {
+  display: block;
+  width: min(100vw, calc(100dvh * 4 / 3));
+  height: auto;
+  aspect-ratio: 4 / 3;
+  background: #fff;
+  image-rendering: pixelated;
+  outline: none;
+}
+
+#loading,
+#error {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  color: #202124;
+  background: #fff;
+  font-size: 16px;
+  letter-spacing: 0;
+  text-align: center;
+}
+
+#loading[hidden],
+#error[hidden] {
+  display: none;
+}
