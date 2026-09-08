@@ -1,5 +1,6 @@
 import os
 import sys
+import asyncio
 import pygame
 import argparse
 import json
@@ -52,7 +53,12 @@ class Game:
         self.quantum_grid = alpha.QuantumWorld()
         self.object_sprites = pygame.sprite.Group()
         self.tile_sprites = pygame.sprite.Group()
-        pygame.time.set_timer(pygame.USEREVENT, 1000) # Timer for running correlation_update()
+        self.correlation_timer_supported = True
+        try:
+            pygame.time.set_timer(pygame.USEREVENT, 1000)
+        except NotImplementedError:
+            self.correlation_timer_supported = False
+            self.next_correlation_update = pygame.time.get_ticks() + 1000
 
         self.current_level = args.level
         self.player = None
@@ -242,16 +248,33 @@ class Game:
                             pygame.draw.line(self.screen, (60, 60, 200), start_pos, end_pos, width=2)
 
     # Below functions are for the main game loop.
+    def run_frame(self):
+        """Handle and render one frame of the game."""
+        if (
+            not self.correlation_timer_supported
+            and pygame.time.get_ticks() >= self.next_correlation_update
+        ):
+            self.correlation_update()
+            self.next_correlation_update = pygame.time.get_ticks() + 1000
+
+        self.handle_events()
+        update_mouse_drag(self.hotbar.slots)
+        update_mouse_drag(self.objects)
+        self.display_game()
+
     def run(self):
         """Main game loop that handles events, updates, and rendering."""
         clock = pygame.time.Clock()
     
         while True:
-            self.handle_events()
-            update_mouse_drag(self.hotbar.slots)
-            update_mouse_drag(self.objects)
-            self.display_game()
+            self.run_frame()
             clock.tick(FPS)
+
+    async def run_browser(self):
+        """Run the same game loop while yielding frames to the browser."""
+        while True:
+            self.run_frame()
+            await asyncio.sleep(1 / FPS)
 
     def handle_events(self):
         """Handles all game events such as keyboard input, mouse actions, and custom events."""
