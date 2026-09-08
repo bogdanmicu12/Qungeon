@@ -22,8 +22,8 @@ Serve it locally from the repository root:
 py -3.13 -m http.server 8000
 ```
 
-Open <http://localhost:8000>. A different starting level can be selected with a
-URL such as <http://localhost:8000/?level=5>.
+Open <http://localhost:8000> to see the main menu. To jump directly into a
+single level, use a URL such as <http://localhost:8000/?level=5>.
 
 For production, serve the repository root from any HTTPS static-file host with
 `index.html` as the entry point. No build step or server-side Python process is
@@ -49,11 +49,46 @@ Run from the repo root - all asset and level paths are relative.
 
 ```bash
 source QungeonEnv313/Scripts/activate
-python Qungeon.py        # start at level 1
-python Qungeon.py 5      # start at level 5
+python Qungeon.py        # open the main menu
+python Qungeon.py 5      # jump directly into level 5
 ```
 
 An invalid or nonexistent level number exits with an error message instead of starting.
+
+# Menus and settings
+
+Both versions use the same Pygame menus and original pixel-art assets. No new
+graphics dependency or build step is required.
+UI text uses a bundled ASCII subset of DejaVu Sans; its license is in
+`assets/DejaVu-LICENSE.txt`.
+
+- **Start run** opens run settings first, then plays every level in order.
+- **Level select** opens any of the eight available puzzles as a single level.
+- **Settings** saves preferences automatically: in `.qungeon-settings.json` on
+  desktop, or browser local storage. Preferences are separate between versions.
+- **Decoherence time mode** is a saved preference only, marked coming soon;
+  it does not add a timer or change quantum states yet.
+- **Entanglement guides** toggles the connections shown on pillar hover.
+- **Placeholder** reserves a setting for future use and has no gameplay effect.
+- **How to play** opens an intentionally blank page with a Back button.
+
+Use the mouse, arrow keys / WASD, or Tab / Shift+Tab to navigate menus; Enter
+or Space selects. Escape goes back. During play, Escape (or the Pause button)
+freezes gameplay, including movement and correlation animations. Resume,
+restart the current level, return to the menu, or open How to Play from there.
+Changing tabs or losing window focus also pauses the game.
+
+Completing a single level or the final level opens a completion screen instead
+of closing the game. The failure screen is implemented but has
+no death or unwinnability detection connected - future solver can call
+`game.show_failed()`; its Retry action restores the current level and inventory,
+and Return to menu opens the main menu.
+
+Run the tests with the project environment:
+
+```bash
+python -m pytest tests -q
+```
 
 # How to Play
 
@@ -69,7 +104,7 @@ the pillars out of your way.
 |---|---|
 | `W` `A` `S` `D` | Move |
 | `R` | Restart level |
-| `Q` | Quit |
+| `Esc` / `Q` | Pause / open the in-game menu |
 | Mouse drag | Drag a gate from the hotbar onto a pillar |
 | Mouse hover | Hover a pillar to draw entanglement lines to its partners |
 

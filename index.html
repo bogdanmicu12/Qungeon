@@ -3,12 +3,13 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="theme-color" content="#ffffff">
+    <meta name="theme-color" content="#11131e">
     <title>Qungeon</title>
     <link rel="icon" href="./assets/character.png" type="image/png">
     <link rel="stylesheet" href="./web/styles.css">
     <link rel="stylesheet" href="https://pyscript.net/releases/2026.6.2/core.css">
     <script type="module" src="https://pyscript.net/releases/2026.6.2/core.js"></script>
+    <script src="./web/shell.js" defer></script>
   </head>
   <body>
     <main id="game-shell" aria-busy="true">
@@ -17,15 +18,16 @@
         width="800"
         height="600"
         tabindex="0"
-        aria-label="Qungeon game"
+        aria-label="Qungeon. Use arrow keys or Tab to navigate menus, Enter to select, and Escape to pause or go back. Move with WASD and drag gates onto nearby pillars during play."
       ></canvas>
-      <div id="loading" role="status">Loading Qungeon...</div>
+      <div id="loading" role="status"><span class="loading-mark" aria-hidden="true">Q</span><strong>QUNGEON</strong><span>Loading...</span></div>
       <div id="error" role="alert" hidden></div>
+      <noscript>Enable JavaScript to play Qungeon.</noscript>
     </main>
     <script
       type="py-game"
       src="./web/main.py"
-      config="./web/pyscript.json"
+      config="./web/pyscript.json?v=2"
       target="canvas"
     ></script>
   </body>
