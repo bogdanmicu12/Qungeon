@@ -1,10 +1,14 @@
 import pygame
+from functools import lru_cache
+
+
+@lru_cache(maxsize=32)
+def font(size):
+    return pygame.font.Font("./assets/DejaVuSans.ttf", round(size * 0.7))
 
 def add_text(sprite, text, x=0, y=0):
     """Adds text to the sprite's image at the specified position."""
-    font = pygame.font.Font(None, 24)
-    text_surface = font.render(text, True, (255, 255, 255))
-    text_surface.set_colorkey((0, 0, 0))  # Set black as transparent
+    text_surface = font(24).render(text, True, (255, 255, 255))
     sprite.image = sprite.image.convert_alpha()
     sprite.image.blit(text_surface, (x, y))
 

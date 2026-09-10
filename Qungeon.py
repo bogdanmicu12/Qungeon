@@ -1,48 +1,35 @@
 import os
-import sys
 import asyncio
 import pygame
 import argparse
 import json
 
-from pygame.locals import *
-from scripts.grouping_system import *
-from scripts.user_interface import *
-from scripts.game_objects import *
-from scripts.common_functions import *
+import unitary.alpha as alpha
+from pygame.locals import (
+    KEYDOWN, MOUSEBUTTONDOWN, MOUSEBUTTONUP, QUIT,
+    K_ESCAPE, K_a, K_d, K_q, K_r, K_s, K_w,
+)
+from scripts.grouping_system import GroupingSystem
+from scripts.user_interface import Hotbar
+from scripts.game_objects import (
+    BLOCK_SIZE, LootableObject, Player, QuantumObject, Tile, TileType, pillar_image,
+)
+from scripts.common_functions import handle_slot_mouse_down, hover, update_mouse_drag
 from scripts.level_validation import validate_level, parse_pos, LevelError
+from scripts.menus import MenuUI, BG, load_settings, normalize_settings, save_settings
 
 
-# Constants
 FPS = 60
 HOP_FRAMES = 10
 HOP_DELAY_MS = 10
-SCREEN_BG_COLOR = (255, 255, 255)
+SCREEN_BG_COLOR = BG
 GAME_TITLE = 'Qungeon'
 DEFAULT_START_LEVEL = 1
 
-class GameHotbar(Hotbar):
-    """Handles the game's hotbar interactions, primarily drag-and-drop functionality for items."""
-
-    def __init__(self):
-        super().__init__()
-
-    def handle_mouse_up(self, game, event):
-        """Handles mouse release events to stop dragging an item from the hotbar."""
-        for i, (key, slot) in enumerate(self.slots.items()):
-            if slot.dragging:
-                slot.dragging = False
-                self.remove_item(game, event, key)
-
-                slot.rect.x = self.rect.x + i * 55
-                slot.rect.y = self.rect.y
-                break
-
 class Game:
-    """Main game class for Qungeon, managing levels, player movement, and the game loop.
-    Lower level working of class can be found in Engine class."""
+    """Level state, input and the game loop."""
 
-    def __init__(self, args):
+    def __init__(self, args, settings=None, persist_settings=None):
         """Initializes the game, sets up the starting level, player, and game display."""
         pygame.init()
         self.screen = pygame.display.set_mode((800, 600))
@@ -53,18 +40,26 @@ class Game:
         self.quantum_grid = alpha.QuantumWorld()
         self.object_sprites = pygame.sprite.Group()
         self.tile_sprites = pygame.sprite.Group()
-        self.correlation_timer_supported = True
-        try:
-            pygame.time.set_timer(pygame.USEREVENT, 1000)
-        except NotImplementedError:
-            self.correlation_timer_supported = False
-            self.next_correlation_update = pygame.time.get_ticks() + 1000
-
+        self.settings = load_settings() if settings is None else normalize_settings(settings)
+        self.persist_settings = persist_settings or save_settings
+        self.available_levels = sorted(
+            int(filename[:-5]) for filename in os.listdir("./levels")
+            if filename.endswith(".json") and filename[:-5].isdigit()
+        )
+        self.running = True
+        self.run_mode = "full"
+        self.last_tick = pygame.time.get_ticks()
+        self.correlation_elapsed = 0
+        self.hop = None
         self.current_level = args.level
         self.player = None
-        self.hotbar = GameHotbar()
+        self.hotbar = Hotbar()
         pygame.display.set_caption(GAME_TITLE)
         self.load_level(f"./levels/{self.current_level}.json")
+        self.menu = MenuUI(self)
+        if getattr(args, "start_direct", False):
+            self.run_mode = "single"
+            self.menu.open("playing")
     
     def load_level(self, filename):
         """Loads and parses the game level from a JSON file.
@@ -125,21 +120,33 @@ class Game:
         self.quantum_grid.clear()
         self.grouping_system.groups.clear()
         self.grouping_system.count = 0
+        self.hop = None
+        self.correlation_elapsed = 0
 
     def hop_animation(self, start_pos, end_pos):
-        """Animates the player's movement with a hopping effect."""
-        for i in range(HOP_FRAMES):
-            progress = (i + 1) / HOP_FRAMES
-            hop_height = -(progress * (1 - progress))
-            new_x = start_pos[0] + (end_pos[0] - start_pos[0]) * progress
-            new_y = start_pos[1] + (end_pos[1] - start_pos[1]) * progress + hop_height
+        """Begin a frame-driven hop, so Escape can pause it mid-movement."""
+        self.hop = {"start": start_pos, "end": end_pos, "elapsed": 0}
 
-            self.player.update_position(new_x, new_y)
-            self.display_game()
-            pygame.time.delay(HOP_DELAY_MS)
+    def update_hop(self, elapsed):
+        if self.hop is None:
+            return
+        self.hop["elapsed"] += elapsed
+        progress = min(1, self.hop["elapsed"] / (HOP_FRAMES * HOP_DELAY_MS))
+        start, end = self.hop["start"], self.hop["end"]
+        self.player.update_position(
+            start[0] + (end[0] - start[0]) * progress,
+            start[1] + (end[1] - start[1]) * progress - progress * (1 - progress),
+        )
+        if progress == 1:
+            self.player.update_position(*end)
+            self.hop = None
+            if self.tiles[end].type == TileType.END:
+                self.advance_level()
 
     def update_position(self, direction):
         """Updates the player's position based on the input direction key and handles level progression."""
+        if self.hop is not None:
+            return
         x, y = self.player.position
         new_x, new_y = x, y
 
@@ -161,28 +168,49 @@ class Game:
 
         if tile and tile.type == TileType.END:
             self.hop_animation(start_pos, end_pos)
-            self.advance_level()
         elif object_key in self.objects:
             if self.objects[object_key].function(self, new_x, new_y):
                 self.hop_animation(start_pos, end_pos)
-                self.player.update_position(new_x, new_y)
         elif tile and tile.type != TileType.WALL:
             self.hop_animation(start_pos, end_pos)
-            self.player.update_position(new_x, new_y)
 
     def advance_level(self):
-        """Advances to the next level, or ends the game if no further levels exist."""
-        self.current_level += 1
-        next_level_filename = f"./levels/{self.current_level}.json"
-        if os.path.isfile(next_level_filename):
-            self.load_level(next_level_filename)
+        """Finish a single puzzle or advance through the full run without exiting."""
+        index = self.available_levels.index(self.current_level)
+        if self.run_mode == "full" and index + 1 < len(self.available_levels):
+            self.start_level(self.available_levels[index + 1], "full")
         else:
-            print("Game completed!")
-            pygame.quit()
-            sys.exit()
+            self.menu.open("complete")
+
+    def start_level(self, level, mode="single"):
+        self.load_level(f"./levels/{level}.json")
+        self.current_level = level
+        self.run_mode = mode
+        self.menu.open("playing")
+
+    def restart_level(self):
+        self.start_level(self.current_level, self.run_mode)
+
+    def return_to_menu(self):
+        self.menu.open("main")
+
+    def show_failed(self):
+        """Display failure without detecting it."""
+        self.menu.open("failed")
+
+    def cancel_dragging(self):
+        """Put uncommitted drags back without spending a gate."""
+        for slot in self.hotbar.slots.values():
+            slot.dragging = False
+        self.hotbar.update_slots()
+        for obj in self.objects.values():
+            if obj.dragging:
+                obj.rect.topleft = (obj.origin_x, obj.origin_y)
+                obj.dragging = False
+                if isinstance(obj, QuantumObject):
+                    obj.control = None
     
-    #Below functions rea for rendering of the game.
-    def display_game(self):
+    def display_game(self, update=True, interactive=True):
         """Renders the current game state, including the player, tiles, and hotbar, to the screen."""
         self.screen.fill(SCREEN_BG_COLOR)
         
@@ -196,10 +224,14 @@ class Game:
             self.screen.blit(sprite.image, sprite.rect)
 
         self.hotbar.sprites.draw(self.screen)
-        self.entanglement_visuals()
-        hover(self.hotbar.slots, self.screen)
+        if interactive:
+            if self.settings["entanglement_guides"]:
+                self.entanglement_visuals()
+            hover(self.hotbar.slots, self.screen)
+        self.menu.draw_hud()
 
-        pygame.display.update()
+        if update:
+            pygame.display.update()
 
     def handle_object_dragging(self, event):
         """Handles the dragging of objects based on mouse events."""
@@ -247,72 +279,103 @@ class Game:
                             end_pos = ((entangled_object.position[0] + 0.5) * BLOCK_SIZE, (entangled_object.position[1] + 0.5) * BLOCK_SIZE)
                             pygame.draw.line(self.screen, (60, 60, 200), start_pos, end_pos, width=2)
 
-    # Below functions are for the main game loop.
     def run_frame(self):
         """Handle and render one frame of the game."""
-        if (
-            not self.correlation_timer_supported
-            and pygame.time.get_ticks() >= self.next_correlation_update
-        ):
-            self.correlation_update()
-            self.next_correlation_update = pygame.time.get_ticks() + 1000
-
+        now = pygame.time.get_ticks()
+        elapsed = min(now - self.last_tick, 100)
+        self.last_tick = now
+        was_playing = self.menu.page == "playing"
         self.handle_events()
-        update_mouse_drag(self.hotbar.slots)
-        update_mouse_drag(self.objects)
-        self.display_game()
+        if not self.running:
+            return
+        if self.menu.page == "playing":
+            if was_playing:
+                self.update_hop(elapsed)
+                if self.menu.page == "playing":
+                    self.correlation_elapsed += elapsed
+                    if self.correlation_elapsed >= 1000:
+                        self.correlation_update()
+                        self.correlation_elapsed %= 1000
+            if self.menu.page == "playing":
+                update_mouse_drag(self.hotbar.slots)
+                update_mouse_drag(self.objects)
+                self.display_game()
+                return
+        self.menu.draw()
 
     def run(self):
         """Main game loop that handles events, updates, and rendering."""
         clock = pygame.time.Clock()
     
-        while True:
+        while self.running:
             self.run_frame()
             clock.tick(FPS)
+        pygame.quit()
 
-    async def run_browser(self):
+    async def run_browser(self, should_pause=None, on_page_change=None):
         """Run the same game loop while yielding frames to the browser."""
-        while True:
+        previous_page = None
+        while self.running:
+            if should_pause is not None and should_pause():
+                if self.menu.page == "playing":
+                    self.menu.open("paused")
             self.run_frame()
+            if self.menu.page != previous_page:
+                previous_page = self.menu.page
+                if on_page_change is not None:
+                    on_page_change(previous_page)
             await asyncio.sleep(1 / FPS)
 
     def handle_events(self):
         """Handles all game events such as keyboard input, mouse actions, and custom events."""
         for event in pygame.event.get():
             if event.type == QUIT:
-                pygame.quit()
-                sys.exit()
+                self.running = False
+                return
+            if event.type == getattr(pygame, "WINDOWFOCUSLOST", -1):
+                if self.menu.page == "playing":
+                    self.menu.open("paused")
+                return
+            previous_page = self.menu.page
+            if self.menu.page != "playing":
+                self.menu.handle_event(event)
             elif event.type == KEYDOWN:
                 self.handle_keydown(event)
-            elif event.type == pygame.USEREVENT:
-                self.correlation_update()
             elif event.type == MOUSEBUTTONDOWN and event.button == 1:
-                obj_effect = self.handle_object_dragging(event)
-                if obj_effect:
-                    self.hotbar.remove_by_key(obj_effect)
+                if pygame.Rect(652, 29, 108, 35).collidepoint(event.pos):
+                    self.menu.open("paused")
                 else:
-                    handle_slot_mouse_down(self.hotbar.slots, event)
+                    obj_effect = self.handle_object_dragging(event)
+                    if obj_effect:
+                        self.hotbar.remove_by_key(obj_effect)
+                    else:
+                        handle_slot_mouse_down(self.hotbar.slots, event)
             elif event.type == MOUSEBUTTONUP and event.button == 1:
                 self.hotbar.handle_mouse_up(self, event)
+            if self.menu.page != previous_page:
+                # Discard input queued for the previous screen.
+                return
 
     def handle_keydown(self, event):
         """Handles keydown events for movement and other actions."""
-        if event.key == K_q:
-            pygame.quit()
-            sys.exit()
+        if event.key in (K_ESCAPE, K_q):
+            self.menu.open("paused")
         elif event.key in [K_w, K_s, K_a, K_d]:
             self.update_position(event.key)
         elif event.key == K_r:
             try:
-                self.load_level(f"./levels/{self.current_level}.json")
+                self.restart_level()
             except LevelError as err:
                 print(f"Could not restart level: {err}")
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Optional setting for starting level.")
-    parser.add_argument('level', nargs='?', type=int, default=DEFAULT_START_LEVEL, help='The starting level of the game (default is 1)')
+    parser.add_argument('level', nargs='?', type=int, default=None, help='Jump directly into a single level; omit to open the menu')
     args = parser.parse_args()
+    args.start_direct = args.level is not None
+    if args.level is None:
+        args.level = DEFAULT_START_LEVEL
 
     if not os.path.isfile(f"./levels/{args.level}.json"):
         parser.error(f"level {args.level} does not exist")

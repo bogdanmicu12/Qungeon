@@ -3,6 +3,7 @@
     "cirq-core==1.7.0"
   ],
   "files": {
+    "../assets/DejaVuSans.ttf": "./assets/DejaVuSans.ttf",
     "../assets/box.png": "./assets/box.png",
     "../assets/chad-gate.png": "./assets/chad-gate.png",
     "../assets/character.png": "./assets/character.png",
@@ -29,6 +30,7 @@
     "../scripts/game_objects.py": "./scripts/game_objects.py",
     "../scripts/grouping_system.py": "./scripts/grouping_system.py",
     "../scripts/level_validation.py": "./scripts/level_validation.py",
+    "../scripts/menus.py": "./scripts/menus.py",
     "../scripts/user_interface.py": "./scripts/user_interface.py",
     "./unitary/__init__.py": "./unitary/__init__.py",
     "./unitary/alpha/__init__.py": "./unitary/alpha/__init__.py",

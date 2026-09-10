@@ -5,7 +5,6 @@ from scripts.common_functions import add_text, set_dragging
 class ItemSlot(pygame.sprite.Sprite):
     """Represents a slot for an item in the hotbar."""
     def __init__(self, x, y, count, item_name):
-        """Initializes the item slot with position, item count, and item name."""
         super().__init__()
         self.image = pygame.Surface([50, 50], pygame.SRCALPHA)
         pygame.draw.rect(self.image, (150, 150, 150), pygame.Rect(1, 1, 47, 47))
@@ -24,7 +23,6 @@ class ItemSlot(pygame.sprite.Sprite):
         self.offset_y = 0
         self.dragging = False
 
-        # Setup hover image for displaying additional item info
         info_image = gate_info_image.get(item_name)
         if info_image:
             rect = info_image.get_rect()
@@ -50,28 +48,19 @@ class ItemSlot(pygame.sprite.Sprite):
             self.hover_image_rect.topleft = (mouse_x, mouse_y - 45)
             screen.blit(self.hover_image, self.hover_image_rect)
 
-class Hotbar(pygame.sprite.Sprite):
-    """ Represents the hotbar which holds item slots."""
+class Hotbar:
+    """Gate inventory and drag handling."""
     def __init__(self):
-        """Initializes the hotbar with a background image and slot management."""
-        super().__init__()
-        self.image = pygame.Surface([435, 50])
-        self.image.fill((25, 25, 25))
-        self.rect = self.image.get_rect()
-        self.rect.x = 175
-        self.rect.y = 525
+        self.rect = pygame.Rect(400, 525, 0, 50)
         self.slots = {}
         self.sprites = pygame.sprite.Group()
-        self.font = pygame.font.Font(None, 24)
     
     def change_item_text(self, slot, item, count=0):
-        """Updates the text displayed on the item slot."""
         add_text(slot, item)
         if count:
             add_text(slot, f'x{count}', 0, 30)
 
     def add_item(self, item, count):
-        """Adds an item to the hotbar or updates the existing slot if it already contains the item."""
         if item in self.slots:
             slot = self.slots[item]
             slot.count += count
@@ -79,14 +68,14 @@ class Hotbar(pygame.sprite.Sprite):
             self.change_item_text(slot, item, str(slot.count))
             return slot
         else:
-            new_slot = ItemSlot(self.rect.x + len(self.slots) * 55, self.rect.y, count, item)
+            new_slot = ItemSlot(0, self.rect.y, count, item)
             self.change_item_text(new_slot, item, str(count))
             self.slots[item] = new_slot
             self.sprites.add(new_slot)
+            self.update_slots()
             return new_slot
 
     def remove_by_key(self, key):
-        """Removes or updates an item slot based on the key."""
         slot = self.slots[key]
         slot.count -= 1
         if slot.count <= 0:
@@ -98,7 +87,6 @@ class Hotbar(pygame.sprite.Sprite):
             self.change_item_text(slot, key, str(slot.count))
 
     def remove_item(self, game, event, key):
-        """Removes an item from the hotbar and applies its effect to a game object if applicable."""
         slot = self.slots.get(key)
         if not slot:
             return
@@ -116,6 +104,16 @@ class Hotbar(pygame.sprite.Sprite):
                     break
 
     def update_slots(self):
-        """Updates the position of all item slots in the hotbar."""
-        for i, (name, slot) in enumerate(self.slots.items()):
-            slot.rect.x = self.rect.x + i * 55
+        self.rect.width = max(0, len(self.slots) * 55 - 5)
+        self.rect.centerx = 400
+        for i, slot in enumerate(self.slots.values()):
+            if not slot.dragging:
+                slot.rect.topleft = (self.rect.x + i * 55, self.rect.y)
+
+    def handle_mouse_up(self, game, event):
+        for key, slot in self.slots.items():
+            if slot.dragging:
+                slot.dragging = False
+                self.remove_item(game, event, key)
+                self.update_slots()
+                break
