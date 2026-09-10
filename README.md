@@ -84,6 +84,40 @@ no death or unwinnability detection connected - future solver can call
 `game.show_failed()`; its Retry action restores the current level and inventory,
 and Return to menu opens the main menu.
 
+# Level solver
+
+`scripts/level_solver.py` answers, for any mid-play state, whether the level can
+still be won - the situation where a player has spent the gates they needed and
+is stuck with no way to reach the END tile. It is a standalone module; nothing
+in the game calls it yet.
+
+```python
+from scripts import level_solver
+
+level_solver.is_solvable(game)          # True / False / None
+level_solver.solve(level_solver.snapshot(game)).plan   # a winning action list
+```
+
+`None` means the search hit its node budget, not that the level is lost -
+callers must treat it as "assume winnable" rather than telling a player to
+restart. `Solution.is_stuck` encodes that rule.
+
+The search is exhaustive: gates are consumed on use, so the number of actions
+left in a level is finite. Movement is not searched over - it is folded into
+the set of tiles the player can reach - and the quantum state is kept as one
+small vector per entangled group of pillars rather than one vector over all of
+them, which is what keeps level 6 (15 pillars) in the low hundreds of
+milliseconds.
+
+Because solvability only drops on an *irreversible* action, and the only
+irreversible actions are spending a gate and picking up a loot box, this is
+worth running on those two events rather than on a timer.
+
+Gate matrices are derived from the game's own `gates` table, so a new
+single-qubit gate needs no solver change. A new *controlled* gate must also be
+added to `level_solver.CONTROL_EFFECTS`; `tests/test_solver.py` fails until it
+is.
+
 Run the tests with the project environment:
 
 ```bash
