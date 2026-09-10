@@ -3,6 +3,7 @@
     "cirq-core==1.7.0"
   ],
   "files": {
+    "../Qungeon.py": "./Qungeon.py",
     "../assets/DejaVuSans.ttf": "./assets/DejaVuSans.ttf",
     "../assets/box.png": "./assets/box.png",
     "../assets/chad-gate.png": "./assets/chad-gate.png",
@@ -24,11 +25,11 @@
     "../levels/6.json": "./levels/6.json",
     "../levels/7.json": "./levels/7.json",
     "../levels/8.json": "./levels/8.json",
-    "../Qungeon.py": "./Qungeon.py",
     "../scripts/common_functions.py": "./scripts/common_functions.py",
     "../scripts/flip_phase.py": "./scripts/flip_phase.py",
     "../scripts/game_objects.py": "./scripts/game_objects.py",
     "../scripts/grouping_system.py": "./scripts/grouping_system.py",
+    "../scripts/level_solver.py": "./scripts/level_solver.py",
     "../scripts/level_validation.py": "./scripts/level_validation.py",
     "../scripts/menus.py": "./scripts/menus.py",
     "../scripts/user_interface.py": "./scripts/user_interface.py",

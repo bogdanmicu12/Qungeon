@@ -19,7 +19,7 @@ RED = (233, 149, 159)
 DEFAULT_SETTINGS = {
     "decoherence": False,
     "entanglement_guides": True,
-    "placeholder": False,
+    "stuck_warning": True,
 }
 SETTINGS_PATH = Path(".qungeon-settings.json")
 
@@ -62,7 +62,7 @@ class MenuUI:
     def __init__(self, game):
         self.game = game
         self.page = "main"
-        self.help_return = "main"
+        self.return_page = "main"   # where Help/Settings go back to
         self.focus = 0
         self.pressed = None
         self.previews = {}
@@ -120,7 +120,7 @@ class MenuUI:
                 for index, (key, title, description) in enumerate((
                     ("decoherence", "Decoherence time mode", "Coming soon. Preference saved."),
                     ("entanglement_guides", "Entanglement guides", "Show connections when you hover over a pillar."),
-                    ("placeholder", "Placeholder", "Not in use."),
+                    ("stuck_warning", "Stuck detection", "Offer a restart when the level can no longer be completed."),
                 ))
             ]
             result.append(("back", pygame.Rect(60, 491, 200, 44), "Back", ""))
@@ -138,19 +138,20 @@ class MenuUI:
         actions = {
             "paused": (("resume", "Resume"), ("retry", "Restart level"),
                        ("help", "How to play"), ("main", "Return to menu")),
-            "failed": (("retry", "Retry"), ("main", "Return to menu")),
+            "failed": (("retry", "Restart level"), ("settings", "Settings"),
+                       ("main", "Return to menu")),
             "complete": (("retry_run", "Play again"), ("main", "Return to menu")),
         }.get(self.page, ())
-        top = 253 if self.page == "paused" else 339
+        top = {"paused": 253, "failed": 306}.get(self.page, 339)
         return [(action, pygame.Rect(244, top + index * 53, 312, 42), label, "")
                 for index, (action, label) in enumerate(actions)]
 
     def back(self):
         if self.page == "paused":
             self.open("playing")
-        elif self.page == "help":
-            self.open(self.help_return)
-        elif self.page in ("settings", "setup", "levels"):
+        elif self.page in ("help", "settings"):
+            self.open(self.return_page)
+        elif self.page in ("setup", "levels"):
             self.open("main")
 
     def activate(self, action):
@@ -171,9 +172,11 @@ class MenuUI:
                 self.game.restart_level()
         elif action == "resume":
             self.open("playing")
-        elif action == "help":
-            self.help_return = self.page
-            self.open("help")
+        elif action in ("help", "settings"):
+            # Both are reachable from an overlay (Paused, Run failed), so
+            # remember where to come back to instead of always the main menu.
+            self.return_page = self.page
+            self.open(action)
         elif action == "back":
             self.back()
         elif action == "main":
@@ -319,7 +322,10 @@ class MenuUI:
             symbol = "//" if self.page == "paused" else ("X" if self.page == "failed" else "+")
             pygame.draw.rect(screen, color, (381, 115, 38, 38), 2)
             self.text(symbol, 400, 121, 31, color, True)
-            title = {"paused": "Paused", "failed": "Run failed", "complete": "Run complete" if self.game.run_mode == "full" else "Level complete"}[self.page]
+            full_run = self.game.run_mode == "full"
+            title = {"paused": "Paused",
+                     "failed": "Run failed" if full_run else "Level failed",
+                     "complete": "Run complete" if full_run else "Level complete"}[self.page]
             self.text(title, 400, 170, 46, INK, True)
             self.text(f"LEVEL {self.game.current_level:02}   /   {'FULL RUN' if self.game.run_mode == 'full' else 'SINGLE LEVEL'}", 400, 220, 19, MUTED, True)
             if self.page != "paused":

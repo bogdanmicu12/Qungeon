@@ -69,7 +69,11 @@ UI text uses a bundled ASCII subset of DejaVu Sans; its license is in
 - **Decoherence time mode** is a saved preference only, marked coming soon;
   it does not add a timer or change quantum states yet.
 - **Entanglement guides** toggles the connections shown on pillar hover.
-- **Placeholder** reserves a setting for future use and has no gameplay effect.
+- **Stuck detection** (on by default) offers a restart once the level can no
+  longer be completed. Turning it off stops the prompt and the solver behind
+  it; see the level solver section below. It replaces the old Placeholder
+  slot, so a saved preference file from before simply falls back to the
+  default.
 - **How to play** opens an intentionally blank page with a Back button.
 
 Use the mouse, arrow keys / WASD, or Tab / Shift+Tab to navigate menus; Enter
@@ -79,17 +83,16 @@ restart the current level, return to the menu, or open How to Play from there.
 Changing tabs or losing window focus also pauses the game.
 
 Completing a single level or the final level opens a completion screen instead
-of closing the game. The failure screen is implemented but has
-no death or unwinnability detection connected - future solver can call
-`game.show_failed()`; its Retry action restores the current level and inventory,
-and Return to menu opens the main menu.
+of closing the game. The failure screen is driven by the level solver below: it
+appears when the level can no longer be completed. Restart level restores the
+level and its inventory, Settings opens the settings page and comes back to the
+prompt, and Return to menu opens the main menu.
 
 # Level solver
 
-`scripts/level_solver.py` answers, for any mid-play state, whether the level can
-still be won - the situation where a player has spent the gates they needed and
-is stuck with no way to reach the END tile. It is a standalone module; nothing
-in the game calls it yet.
+Gates are consumed when used, so spending the wrong one can leave a level with
+no way to reach the END tile. `scripts/level_solver.py` answers, for any
+mid-play state, whether the level can still be won.
 
 ```python
 from scripts import level_solver
@@ -109,14 +112,35 @@ small vector per entangled group of pillars rather than one vector over all of
 them, which is what keeps level 6 (15 pillars) in the low hundreds of
 milliseconds.
 
-Because solvability only drops on an *irreversible* action, and the only
-irreversible actions are spending a gate and picking up a loot box, this is
-worth running on those two events rather than on a timer.
-
 Gate matrices are derived from the game's own `gates` table, so a new
 single-qubit gate needs no solver change. A new *controlled* gate must also be
 added to `level_solver.CONTROL_EFFECTS`; `tests/test_solver.py` fails until it
 is.
+
+## When it runs
+
+A level can only become unwinnable when something is consumed - a gate is spent
+or a loot box is taken - so `Game.update_stuck` compares
+`Game.resource_signature()` once per frame and runs the solver only when it
+changes. There is no timer and no polling: an ordinary frame costs nothing, and
+new ways to spend a resource are covered without adding another call site. The
+check is skipped mid-hop, because the player's position is fractional while
+they are jumping and describes no tile; it happens on the frame the hop lands.
+
+All of this is behind the **Stuck detection** setting, on by default. With it
+off, `update_stuck` returns before running anything, so a player who would
+rather work it out alone pays nothing for the feature. The failure screen's own
+Settings button leads straight to the toggle, and re-enabling it re-checks a
+level that was played on while it was off.
+
+Once the level is proven lost, the failure screen waits `STUCK_DELAY_MS`
+(1.8 s of play) before appearing. Prompting the instant a bad move lands is
+intrusive and takes away the chance to work it out; this leaves room to try the
+move that no longer works and feel the wall first. The countdown runs only
+while playing, so pausing freezes it, and restarting the level clears it.
+
+The solver is not run when a level loads. A level that is unwinnable from its
+first frame is a design bug, and catching those belongs to the level designer.
 
 Run the tests with the project environment:
 
