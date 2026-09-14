@@ -1,14 +1,24 @@
 # Quantum puzzle game (Qungeon)
+
 Simple puzzle game, reach the end to complete a level. This can be done by using gates in your toolbar ("bag") to manipulating the quantum state of pillars.
 The player has to be next to an object to interact with it!
 
 ![The player next to a loot box and a pillar in state |1>](assets/screenshot.png)
 
 # Unitary Libary
+
 The game was made using the Unitary library, which handles most of the quantum logic. More information can be found at:
 https://github.com/quantumlib/unitary
 
 Game examples can be found on this page and explanation on how to make use of the library.
+
+# Running using Docker
+
+Make sure you have Docker desktop installed. If not consult: https://docs.docker.com/desktop/. Run the app using:
+
+```bash
+docker compose up
+```
 
 # Play in the browser
 
@@ -19,7 +29,7 @@ Only the small browser adapter and the required Unitary Alpha modules live in
 Serve it locally from the repository root:
 
 ```bash
-py -3.13 -m http.server 8000
+python -3.13 -m http.server 8000
 ```
 
 Open <http://localhost:8000> to see the main menu. To jump directly into a
@@ -100,13 +110,13 @@ the pillars out of your way.
 
 ## Controls
 
-| Input | Action |
-|---|---|
-| `W` `A` `S` `D` | Move |
-| `R` | Restart level |
-| `Esc` / `Q` | Pause / open the in-game menu |
-| Mouse drag | Drag a gate from the hotbar onto a pillar |
-| Mouse hover | Hover a pillar to draw entanglement lines to its partners |
+| Input           | Action                                                    |
+| --------------- | --------------------------------------------------------- |
+| `W` `A` `S` `D` | Move                                                      |
+| `R`             | Restart level                                             |
+| `Esc` / `Q`     | Pause / open the in-game menu                             |
+| Mouse drag      | Drag a gate from the hotbar onto a pillar                 |
+| Mouse hover     | Hover a pillar to draw entanglement lines to its partners |
 
 ## Using gates
 
@@ -121,14 +131,14 @@ applies to the control pillar only — the target can be anywhere on the map.
 - **Controlled gates** (`CNOT`, `CHAD`) — drop the gate on the **control** pillar first, then
   drag from that control pillar to the **target** pillar. This entangles the two.
 
-| Gate | Effect |
-|---|---|
-| `X` | Flip: \|0> ↔ \|1> |
-| `H` | Superposition: puts the pillar in an even mix of \|0> and \|1> |
-| `Z` | Phase flip (no change to the measured value, but it matters once entangled) |
-| `RotY` | Partial Y rotation — nudges the state part-way between \|0> and \|1> |
-| `CNOT` | Controlled flip: flips the target when the control is \|1> |
-| `CHAD` | Controlled Hadamard: superposes the target when the control is \|1> |
+| Gate   | Effect                                                                      |
+| ------ | --------------------------------------------------------------------------- |
+| `X`    | Flip: \|0> ↔ \|1>                                                           |
+| `H`    | Superposition: puts the pillar in an even mix of \|0> and \|1>              |
+| `Z`    | Phase flip (no change to the measured value, but it matters once entangled) |
+| `RotY` | Partial Y rotation — nudges the state part-way between \|0> and \|1>        |
+| `CNOT` | Controlled flip: flips the target when the control is \|1>                  |
+| `CHAD` | Controlled Hadamard: superposes the target when the control is \|1>         |
 
 ## Reading a pillar
 
@@ -139,5 +149,5 @@ The pillar's tint tells you its state:
 - **Reddish** — very close to \|0> but not exactly there, still blocking
 - **Green channel** — the pillar carries a Z phase
 
-Only an *exactly* pure \|0> is walkable — "almost zero" is not good enough. Entangled pillars
+Only an _exactly_ pure \|0> is walkable — "almost zero" is not good enough. Entangled pillars
 pulse through their correlated states, and hovering one draws dark blue lines to its partners.
