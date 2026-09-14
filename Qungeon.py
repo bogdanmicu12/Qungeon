@@ -2,7 +2,6 @@ import os
 import asyncio
 import pygame
 import argparse
-import json
 
 import unitary.alpha as alpha
 from pygame.locals import (
@@ -15,7 +14,7 @@ from scripts.game_objects import (
     BLOCK_SIZE, LootableObject, Player, QuantumObject, Tile, TileType, pillar_image,
 )
 from scripts.common_functions import handle_slot_mouse_down, hover, update_mouse_drag
-from scripts.level_validation import validate_level, parse_pos, LevelError
+from scripts.level_validation import read_level, parse_pos, LevelError
 from scripts.menus import MenuUI, BG, load_settings, normalize_settings, save_settings
 from scripts import level_solver
 
@@ -77,10 +76,7 @@ class Game:
         Validates the file before clean_up() so a malformed level never
         destroys the currently loaded game. Raises LevelError on bad data.
         """
-        with open(filename, "r") as file:
-            level_data = json.load(file)
-
-        validate_level(level_data, filename)
+        level_data = read_level(filename)
         self.clean_up()
 
         for pos_str, tile_type_str in level_data["tiles"].items():
@@ -209,7 +205,19 @@ class Game:
             self.menu.open("complete")
 
     def start_level(self, level, mode="single"):
-        self.load_level(f"./levels/{level}.json")
+        """Load a level and play it.
+
+        Every route into a level - the menu, level select, finishing one level
+        of a run, and the restart key - comes through here, so this is the one
+        place that has to survive a broken level file. `load_level` validates
+        before it touches anything, so a failure here leaves the game exactly
+        as it was rather than dropping the player into a half-loaded level.
+        """
+        try:
+            self.load_level(f"./levels/{level}.json")
+        except LevelError as err:
+            print(f"Could not load level {level}: {err}")
+            return
         self.current_level = level
         self.run_mode = mode
         self.menu.open("playing")
@@ -422,10 +430,7 @@ class Game:
         elif event.key in [K_w, K_s, K_a, K_d]:
             self.update_position(event.key)
         elif event.key == K_r:
-            try:
-                self.restart_level()
-            except LevelError as err:
-                print(f"Could not restart level: {err}")
+            self.restart_level()
 
 
 if __name__ == "__main__":

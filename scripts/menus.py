@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pygame
 from scripts.common_functions import font
+from scripts.level_validation import LevelError, parse_pos, read_level
 
 
 BG = (17, 19, 30)
@@ -243,11 +244,19 @@ class MenuUI:
                 self.text(hint or ">", rect.right - 32, rect.y + 14, 22, color if primary else MUTED)
 
     def level_preview(self, level):
+        """A thumbnail of the level's layout, or a blank card if it is broken.
+
+        Level select previews every file in ./levels, so one malformed file
+        must not take the whole menu down with it; the card is simply empty,
+        and selecting it reports the same error the loader would.
+        """
         if level in self.previews:
             return self.previews[level]
-        with open(f"./levels/{level}.json", encoding="utf-8") as file:
-            data = json.load(file)
-        from scripts.level_validation import parse_pos
+        try:
+            data = read_level(f"./levels/{level}.json")
+        except LevelError:
+            self.previews[level] = pygame.Surface((142, 72), pygame.SRCALPHA)
+            return self.previews[level]
         tiles = {parse_pos(pos): kind for pos, kind in data["tiles"].items()}
         min_x = min(x for x, _ in tiles)
         min_y = min(y for _, y in tiles)

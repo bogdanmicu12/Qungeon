@@ -7,6 +7,8 @@ and so a malformed file fails fast with a clear message instead of executing
 arbitrary code via eval()/getattr().
 """
 
+import json
+
 REQUIRED_KEYS = ("tiles", "objects", "quantum_objects", "gates", "effects")
 VALID_TILES = {"EMPTY", "START", "END", "WALL"}
 VALID_GATES = {"X", "H", "Z", "RotY", "CNOT", "CHAD"}
@@ -77,3 +79,23 @@ def validate_level(level_data, filename):
             raise LevelError(f"{filename}: unknown effect {entry['effect']!r} at {entry['position']}")
         if "target" in entry:
             check_pos(entry["target"])
+
+
+def read_level(filename):
+    """Read, parse and validate a level file, returning its data.
+
+    The one way to turn a level file into level data, so every caller - the
+    game's loader and the menu's level previews - fails on the same bad file
+    in the same way (LevelError, naming the file) instead of each crashing on
+    its own missing key or unreadable path.
+    """
+    try:
+        with open(filename, "r", encoding="utf-8") as file:
+            level_data = json.load(file)
+    except OSError as err:
+        raise LevelError(f"{filename}: cannot be read: {err}")
+    except ValueError as err:
+        raise LevelError(f"{filename}: is not valid JSON: {err}")
+
+    validate_level(level_data, filename)
+    return level_data

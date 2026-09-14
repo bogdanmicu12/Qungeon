@@ -3,6 +3,7 @@
 import asyncio
 import json
 import os
+import pathlib
 from types import SimpleNamespace
 
 os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
@@ -218,6 +219,33 @@ def test_hotbar_recenters_after_pickup_use_and_cancelled_drop(game):
     assert slot.rect.topleft == bar.rect.topleft
     bar.remove_by_key("Z")
     assert slot.rect.centerx == 400
+
+
+def test_a_broken_level_file_never_crashes_the_menu(game):
+    """A malformed level must be survivable from every menu route into a level.
+
+    Level select lists (and previews) whatever is in ./levels, so one bad file
+    used to take the whole menu down: the preview, selecting it, and the
+    restart button each raised out of the frame loop. The game should stay on
+    its feet and simply refuse to load it.
+    """
+    broken = max(game.available_levels) + 1
+    pathlib.Path(f"./levels/{broken}.json").write_text('{"tiles": {"(0, 0)": "START"}}')
+    try:
+        game.available_levels = game.available_levels + [broken]
+        game.menu.open("levels")
+        game.menu.draw()                       # previews every listed level
+
+        click(game, f"level:{broken}")
+        assert game.menu.page == "levels"       # refused, and still on the menu
+        assert game.current_level == 1
+
+        game.current_level = broken             # as if the file broke mid-run
+        game.menu.open("paused")
+        click(game, "retry")
+        assert game.menu.page == "paused"
+    finally:
+        pathlib.Path(f"./levels/{broken}.json").unlink()
 
 
 def test_direct_level_launch_preserves_shortcut():
