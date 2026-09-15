@@ -1,0 +1,7 @@
+{
+  "tiles": { "(3,4)": "EMPTY", "(4,4)": "END" },
+  "objects": {},
+  "quantum_objects": [],
+  "gates": { "X": 1 },
+  "effects": []
+}

@@ -1,0 +1,10 @@
+requirements.in
+QungeonEnv/
+level_editor.py
+__pycache__
+tests.py
+AUDIT.md
+CLAUDE.md
+.claude/
+.qungeon-settings.json
+.menu-previews/

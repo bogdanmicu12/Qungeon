@@ -1,0 +1,28 @@
+{
+  "tiles": {
+    "(5,4)": "START",
+    "(6,4)": "EMPTY",
+    "(6,5)": "EMPTY",
+    "(7,4)": "EMPTY",
+    "(7,5)": "EMPTY",
+    "(8,5)": "END",
+    "(5,3)": "WALL",
+    "(6,3)": "WALL",
+    "(7,3)": "WALL",
+    "(8,4)": "WALL"
+  },
+  "objects": {},
+  "quantum_objects": [
+    "(6,5)",
+    "(7,4)"
+  ],
+  "gates": {
+    "CNOT": 1
+  },
+  "effects": [
+    { "position": "(6,5)", "effect": "Flip" },
+    { "position": "(6,5)", "effect": "Superposition" },
+    { "position": "(7,4)", "effect": "Flip" },
+    { "position": "(6,5)", "effect": "Superposition" }
+  ]
+}

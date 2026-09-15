@@ -1,0 +1,35 @@
+{
+  "tiles": {
+    "(3,3)": "START",
+    "(4,3)": "EMPTY",
+    "(5,3)": "EMPTY",
+    "(6,3)": "EMPTY",
+    "(7,3)": "END",
+    "(3,2)": "WALL",
+    "(4,2)": "WALL",
+    "(5,2)": "WALL",
+    "(6,2)": "WALL",
+    "(7,2)": "WALL"
+  },
+  "objects": {},
+  "quantum_objects": [
+    "(4, 3)",
+    "(5, 3)",
+    "(6, 3)"
+  ],
+  "gates": {
+    "H": 1,
+    "CNOT": 2
+  },
+  "effects": [
+    { "position": "(4,3)", "effect": "Flip" },
+    { "position": "(5,3)", "effect": "Flip" },
+    { "position": "(6,3)", "effect": "Flip" },
+    { "position": "(4,3)", "effect": "Flip" },
+    { "position": "(5,3)", "effect": "Flip" },
+    { "position": "(6,3)", "effect": "Flip" },
+    { "position": "(4,3)", "effect": "Superposition" },
+    { "position": "(4,3)", "effect": "Flip", "target": "(5,3)" },
+    { "position": "(5,3)", "effect": "Flip", "target": "(6,3)" }
+  ]
+}

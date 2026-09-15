@@ -1,0 +1,89 @@
+:root {
+  color-scheme: dark;
+  font-family: system-ui, sans-serif;
+  background: #11131e;
+  color: #eeebe1;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  width: 100%;
+  min-height: 100%;
+  margin: 0;
+}
+
+body {
+  min-height: 100dvh;
+  overflow: hidden;
+}
+
+#game-shell {
+  position: relative;
+  display: grid;
+  width: 100vw;
+  min-height: 100dvh;
+  place-items: center;
+  background: #11131e;
+}
+
+#canvas {
+  display: block;
+  width: min(100vw, calc(100dvh * 4 / 3));
+  height: auto;
+  aspect-ratio: 4 / 3;
+  background: #11131e;
+  outline: none;
+}
+
+#game-shell.dimmed {
+  background: linear-gradient(#080a12cd, #080a12cd), #11131e;
+}
+
+#loading,
+#error {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  align-content: center;
+  gap: 20px;
+  color: #9a9eb1;
+  background: #11131e;
+  font-size: 16px;
+  letter-spacing: 0;
+  text-align: center;
+}
+
+#loading strong {
+  color: #eeebe1;
+  font-size: 28px;
+}
+
+.loading-mark {
+  display: grid;
+  place-items: center;
+  width: 50px;
+  height: 50px;
+  border: 3px solid #b6a4f2;
+  color: #b6a4f2;
+  font-size: 28px;
+  animation: breathe 1.8s ease-in-out infinite;
+}
+
+@keyframes breathe {
+  50% { opacity: 0.4; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .loading-mark { animation: none; }
+}
+
+#loading[hidden],
+#error[hidden] {
+  display: none;
+}

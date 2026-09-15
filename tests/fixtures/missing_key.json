@@ -1,0 +1,6 @@
+{
+  "tiles": { "(3,4)": "START", "(4,4)": "END" },
+  "objects": {},
+  "quantum_objects": [],
+  "effects": []
+}

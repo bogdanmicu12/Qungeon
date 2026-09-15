@@ -1,0 +1,45 @@
+{
+  "tiles": {
+    "(5,3)": "EMPTY",
+    "(7,5)": "EMPTY",
+    "(7,3)": "EMPTY",
+    "(9,4)": "END",
+    "(6,3)": "EMPTY",
+    "(6,5)": "EMPTY",
+    "(4,3)": "START",
+    "(9,3)": "EMPTY",
+    "(8,3)": "EMPTY",
+    "(8,5)": "EMPTY",
+    "(9,5)": "EMPTY",
+    "(6,4)": "EMPTY",
+    "(4,2)": "WALL",
+    "(5,2)": "WALL",
+    "(6,2)": "WALL",
+    "(7,2)": "WALL",
+    "(8,2)": "WALL",
+    "(9,2)": "WALL"
+  },
+  "objects": {
+    "(8,3)": "H",
+    "(7,5)": "Z"
+  },
+  "quantum_objects": [
+    "(6,3)",
+    "(6,5)",
+    "(9,3)",
+    "(9,5)"
+  ],
+  "gates": {
+    "X": 1,
+    "H": 2
+  },
+  "effects": [
+    { "position": "(6,3)", "effect": "Flip" },
+    { "position": "(6,5)", "effect": "Flip" },
+    { "position": "(6,5)", "effect": "Superposition" },
+    { "position": "(6,5)", "effect": "Phase" },
+    { "position": "(9,3)", "effect": "Flip" },
+    { "position": "(9,3)", "effect": "Superposition" },
+    { "position": "(9,5)", "effect": "Flip" }
+  ]
+}
