@@ -2,7 +2,6 @@ import os
 import asyncio
 import pygame
 import argparse
-import json
 
 import unitary.alpha as alpha
 from pygame.locals import (
@@ -15,8 +14,9 @@ from scripts.game_objects import (
     BLOCK_SIZE, LootableObject, Player, QuantumObject, Tile, TileType, pillar_image,
 )
 from scripts.common_functions import handle_slot_mouse_down, hover, update_mouse_drag
-from scripts.level_validation import validate_level, parse_pos, LevelError
+from scripts.level_validation import read_level, parse_pos, LevelError
 from scripts.menus import MenuUI, BG, load_settings, normalize_settings, save_settings
+from scripts import level_solver
 
 
 FPS = 60
@@ -25,6 +25,13 @@ HOP_DELAY_MS = 10
 SCREEN_BG_COLOR = BG
 GAME_TITLE = 'Qungeon'
 DEFAULT_START_LEVEL = 1
+
+# How long the player keeps playing after the solver proves the level is lost,
+# before the failure screen appears. Being told a move was wrong the instant it
+# lands is intrusive and robs the player of working it out; this leaves room to
+# try the move that no longer works and feel the wall first, without a long
+# stretch of pointlessly wandering a dead level.
+STUCK_DELAY_MS = 1800
 
 class Game:
     """Level state, input and the game loop."""
@@ -50,6 +57,8 @@ class Game:
         self.run_mode = "full"
         self.last_tick = pygame.time.get_ticks()
         self.correlation_elapsed = 0
+        self.stuck_elapsed = None
+        self.resources = None
         self.hop = None
         self.current_level = args.level
         self.player = None
@@ -67,10 +76,7 @@ class Game:
         Validates the file before clean_up() so a malformed level never
         destroys the currently loaded game. Raises LevelError on bad data.
         """
-        with open(filename, "r") as file:
-            level_data = json.load(file)
-
-        validate_level(level_data, filename)
+        level_data = read_level(filename)
         self.clean_up()
 
         for pos_str, tile_type_str in level_data["tiles"].items():
@@ -108,7 +114,22 @@ class Game:
                 effect = [effect, [target_x, target_y]]
 
             self.objects[str(x) + "," + str(y)].apply_effect(self, effect)
-                
+
+        self.resources = self.resource_signature()
+
+    def resource_signature(self):
+        """Everything the player can still spend, as one comparable value.
+
+        A level can only become unwinnable when something is consumed: a gate
+        is spent or a loot box is taken. Comparing this once per frame keeps
+        that trigger in one place, instead of scattering a call through every
+        code path that spends something - including ones added later.
+        """
+        return (
+            sum(slot.count for slot in self.hotbar.slots.values()),
+            len(self.objects),
+        )
+
     def clean_up(self):
         """Resets and clears all game objects, tiles, and hotbar slots when loading a new level."""
         self.tiles.clear()
@@ -122,6 +143,7 @@ class Game:
         self.grouping_system.count = 0
         self.hop = None
         self.correlation_elapsed = 0
+        self.stuck_elapsed = None
 
     def hop_animation(self, start_pos, end_pos):
         """Begin a frame-driven hop, so Escape can pause it mid-movement."""
@@ -183,7 +205,19 @@ class Game:
             self.menu.open("complete")
 
     def start_level(self, level, mode="single"):
-        self.load_level(f"./levels/{level}.json")
+        """Load a level and play it.
+
+        Every route into a level - the menu, level select, finishing one level
+        of a run, and the restart key - comes through here, so this is the one
+        place that has to survive a broken level file. `load_level` validates
+        before it touches anything, so a failure here leaves the game exactly
+        as it was rather than dropping the player into a half-loaded level.
+        """
+        try:
+            self.load_level(f"./levels/{level}.json")
+        except LevelError as err:
+            print(f"Could not load level {level}: {err}")
+            return
         self.current_level = level
         self.run_mode = mode
         self.menu.open("playing")
@@ -194,8 +228,40 @@ class Game:
     def return_to_menu(self):
         self.menu.open("main")
 
+    def update_stuck(self, elapsed):
+        """Check for an unwinnable level, then let it sink in before saying so.
+
+        The solver runs only when a resource was consumed, so this costs
+        nothing on an ordinary frame. It is deliberately skipped mid-hop: the
+        player's position is fractional while they are jumping, which describes
+        no tile, and the check simply happens on the frame the hop lands.
+
+        A solver result of "unknown" (its budget ran out) is not stuck - see
+        `level_solver.Solution.is_stuck`.
+
+        Turning the setting off cancels any pending countdown and stops the
+        solver running at all. `resources` is deliberately left stale while it
+        is off, so turning it back on looks like a change and re-checks a level
+        that was played on in the meantime.
+        """
+        if not self.settings["stuck_warning"]:
+            self.stuck_elapsed = None
+            return
+
+        signature = self.resource_signature()
+        if self.hop is None and signature != self.resources:
+            self.resources = signature
+            if level_solver.solve(level_solver.snapshot(self)).is_stuck:
+                self.stuck_elapsed = 0
+
+        if self.stuck_elapsed is not None:
+            self.stuck_elapsed += elapsed
+            if self.stuck_elapsed >= STUCK_DELAY_MS:
+                self.show_failed()
+
     def show_failed(self):
-        """Display failure without detecting it."""
+        """Open the failure screen and stop any pending countdown."""
+        self.stuck_elapsed = None
         self.menu.open("failed")
 
     def cancel_dragging(self):
@@ -296,6 +362,7 @@ class Game:
                     if self.correlation_elapsed >= 1000:
                         self.correlation_update()
                         self.correlation_elapsed %= 1000
+                    self.update_stuck(elapsed)
             if self.menu.page == "playing":
                 update_mouse_drag(self.hotbar.slots)
                 update_mouse_drag(self.objects)
@@ -363,10 +430,7 @@ class Game:
         elif event.key in [K_w, K_s, K_a, K_d]:
             self.update_position(event.key)
         elif event.key == K_r:
-            try:
-                self.restart_level()
-            except LevelError as err:
-                print(f"Could not restart level: {err}")
+            self.restart_level()
 
 
 if __name__ == "__main__":

@@ -8,6 +8,8 @@ CLAUDE.md
 .claude/
 .qungeon-settings.json
 .menu-previews/
+.vscode/
+.DS_Store
 
 *.py[cod]
 *$py.class

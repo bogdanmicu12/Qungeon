@@ -3,6 +3,7 @@
 import asyncio
 import json
 import os
+import pathlib
 from types import SimpleNamespace
 
 os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
@@ -11,8 +12,8 @@ os.environ.setdefault("SDL_AUDIODRIVER", "dummy")
 import pygame
 import pytest
 
-from Qungeon import Game
-from scripts import menus
+from Qungeon import Game, STUCK_DELAY_MS
+from scripts import level_solver, menus
 
 
 @pytest.fixture
@@ -190,9 +191,9 @@ def test_focus_loss_pauses_game(game):
     assert game.menu.page == "paused"
 
 
-def test_placeholder_has_no_effect_and_guides_can_be_disabled(game, monkeypatch):
+def test_toggling_a_setting_does_not_leak_into_gameplay_and_guides_can_be_disabled(game, monkeypatch):
     click(game, "settings")
-    click(game, "toggle:placeholder")
+    click(game, "toggle:stuck_warning")
     game.start_level(1)
     game.update_position(pygame.K_d)
     assert game.player.position == (3, 4)
@@ -220,6 +221,33 @@ def test_hotbar_recenters_after_pickup_use_and_cancelled_drop(game):
     assert slot.rect.centerx == 400
 
 
+def test_a_broken_level_file_never_crashes_the_menu(game):
+    """A malformed level must be survivable from every menu route into a level.
+
+    Level select lists (and previews) whatever is in ./levels, so one bad file
+    used to take the whole menu down: the preview, selecting it, and the
+    restart button each raised out of the frame loop. The game should stay on
+    its feet and simply refuse to load it.
+    """
+    broken = max(game.available_levels) + 1
+    pathlib.Path(f"./levels/{broken}.json").write_text('{"tiles": {"(0, 0)": "START"}}')
+    try:
+        game.available_levels = game.available_levels + [broken]
+        game.menu.open("levels")
+        game.menu.draw()                       # previews every listed level
+
+        click(game, f"level:{broken}")
+        assert game.menu.page == "levels"       # refused, and still on the menu
+        assert game.current_level == 1
+
+        game.current_level = broken             # as if the file broke mid-run
+        game.menu.open("paused")
+        click(game, "retry")
+        assert game.menu.page == "paused"
+    finally:
+        pathlib.Path(f"./levels/{broken}.json").unlink()
+
+
 def test_direct_level_launch_preserves_shortcut():
     game = Game(SimpleNamespace(level=5, start_direct=True), settings={})
     assert (game.menu.page, game.run_mode, game.current_level) == ("playing", "single", 5)
@@ -239,3 +267,211 @@ def test_browser_reports_page_changes_without_repeating_each_frame(game, monkeyp
     monkeypatch.setattr(game, "run_frame", frame)
     asyncio.run(game.run_browser(on_page_change=reported.append))
     assert reported == ["playing", "paused", "help", "paused", "playing"]
+
+
+# --------------------------------------------------------------------------
+# Unwinnable-level detection (scripts/level_solver.py wired into the loop)
+# --------------------------------------------------------------------------
+
+class Clock:
+    """Deterministic stand-in for pygame.time.get_ticks."""
+
+    def __init__(self):
+        self.now = 0
+
+    def __call__(self):
+        return self.now
+
+
+@pytest.fixture
+def clock(monkeypatch):
+    ticks = Clock()
+    monkeypatch.setattr(pygame.time, "get_ticks", ticks)
+    return ticks
+
+
+def play(game, clock, milliseconds, step=100):
+    """Run the real game loop for `milliseconds` of in-game time."""
+    for _ in range(milliseconds // step):
+        clock.now += step
+        game.run_frame()
+
+
+def spend_gate(game, name, pillar):
+    """Drop a hotbar gate onto a pillar the way a player does, via the loop."""
+    game.hotbar.slots[name].dragging = True
+    pygame.event.post(pygame.event.Event(
+        pygame.MOUSEBUTTONUP, button=1, pos=game.objects[pillar].rect.center))
+    game.run_frame()
+
+
+def test_wasted_gate_prompts_but_not_immediately(game, clock):
+    """Level 3's pillar is |->, where X is a no-op that burns the only X.
+
+    The prompt has to wait: being told instantly is intrusive, and the player
+    should get the chance to try the move that no longer works.
+    """
+    game.start_level(3)
+    game.player.update_position(4, 4)          # step next to the pillar
+    spend_gate(game, "X", "5,4")
+
+    assert game.menu.page == "playing"
+    assert "X" not in game.hotbar.slots        # the gate really was spent
+
+    play(game, clock, STUCK_DELAY_MS - 100)
+    assert game.menu.page == "playing", "prompted too early"
+
+    play(game, clock, 200)
+    assert game.menu.page == "failed"
+
+
+def test_a_good_move_never_prompts(game, clock):
+    """H is the right first move on level 3, so nothing should interrupt."""
+    game.start_level(3)
+    game.player.update_position(4, 4)
+    spend_gate(game, "H", "5,4")
+
+    play(game, clock, 5000)
+    assert game.menu.page == "playing"
+
+
+def test_countdown_freezes_while_paused(game, clock):
+    """Pausing must not run the clock out on a player who stepped away."""
+    game.start_level(3)
+    game.player.update_position(4, 4)
+    spend_gate(game, "X", "5,4")
+
+    key(game, pygame.K_ESCAPE)
+    play(game, clock, 5000)
+    assert game.menu.page == "paused"
+
+    click(game, "resume")
+    play(game, clock, STUCK_DELAY_MS + 200)
+    assert game.menu.page == "failed"
+
+
+def test_loot_pickup_is_checked_only_once_the_hop_lands(game, clock):
+    """Mid-hop the player's position is fractional and describes no tile.
+
+    Level 5 stays winnable after taking this box, so a check taken mid-jump -
+    which would find no reachable END at all - must not happen.
+    """
+    game.start_level(5)
+    game.player.update_position(7, 3)
+    game.update_position(pygame.K_d)           # walk into the loot box at (8,3)
+    assert game.hop is not None
+
+    play(game, clock, 3000, step=50)           # small steps: frames land mid-hop
+    assert game.menu.page == "playing"
+    assert game.hotbar.slots["H"].count == 3
+
+
+def test_solver_runs_only_when_something_was_spent(game, clock, monkeypatch):
+    """No polling: the check is driven by consumption, not by a timer."""
+    calls = []
+    real_solve = level_solver.solve
+    monkeypatch.setattr(
+        level_solver, "solve", lambda *args, **kw: calls.append(1) or real_solve(*args, **kw))
+
+    game.start_level(3)
+    play(game, clock, 3000)
+    assert calls == [], "solver ran while nothing was spent"
+
+    game.player.update_position(4, 4)
+    spend_gate(game, "H", "5,4")
+    assert len(calls) == 1
+
+    play(game, clock, 3000)
+    assert len(calls) == 1
+
+
+def test_failed_screen_offers_restart_settings_and_menu(game):
+    """The prompt's three ways out, and Settings returning to the prompt."""
+    game.start_level(3)
+    game.show_failed()
+    assert [button[0] for button in game.menu.buttons()] == ["retry", "settings", "main"]
+
+    click(game, "settings")
+    assert game.menu.page == "settings"
+    click(game, "toggle:entanglement_guides")
+    key(game, pygame.K_ESCAPE)
+    assert game.menu.page == "failed", "Settings should come back to the prompt"
+
+    click(game, "main")
+    assert game.menu.page == "main"
+
+
+def test_restarting_from_the_prompt_clears_the_countdown(game, clock):
+    game.start_level(3)
+    game.player.update_position(4, 4)
+    spend_gate(game, "X", "5,4")
+    play(game, clock, STUCK_DELAY_MS + 200)
+    assert game.menu.page == "failed"
+
+    click(game, "retry")
+    assert game.menu.page == "playing"
+    assert game.hotbar.slots["X"].count == 1
+    assert game.stuck_elapsed is None
+    play(game, clock, 5000)
+    assert game.menu.page == "playing"
+
+
+def test_stuck_detection_is_on_by_default(game):
+    assert game.settings["stuck_warning"] is True
+    assert menus.DEFAULT_SETTINGS["stuck_warning"] is True
+
+
+def test_stuck_detection_can_be_turned_off(game, clock, monkeypatch):
+    """With the setting off, a lost level never prompts - and never searches."""
+    calls = []
+    real_solve = level_solver.solve
+    monkeypatch.setattr(
+        level_solver, "solve", lambda *args, **kw: calls.append(1) or real_solve(*args, **kw))
+
+    game.settings["stuck_warning"] = False
+    game.start_level(3)
+    game.player.update_position(4, 4)
+    spend_gate(game, "X", "5,4")               # the move that loses the level
+
+    play(game, clock, STUCK_DELAY_MS + 2000)
+    assert game.menu.page == "playing"
+    assert calls == [], "solver ran while stuck detection was off"
+
+
+def test_turning_stuck_detection_back_on_rechecks(game, clock):
+    """Re-enabling mid-level must notice a level that was lost while it was off."""
+    game.settings["stuck_warning"] = False
+    game.start_level(3)
+    game.player.update_position(4, 4)
+    spend_gate(game, "X", "5,4")
+    play(game, clock, STUCK_DELAY_MS + 200)
+    assert game.menu.page == "playing"
+
+    game.settings["stuck_warning"] = True
+    play(game, clock, STUCK_DELAY_MS + 200)
+    assert game.menu.page == "failed"
+
+
+def test_turning_stuck_detection_off_cancels_a_pending_prompt(game, clock):
+    game.start_level(3)
+    game.player.update_position(4, 4)
+    spend_gate(game, "X", "5,4")
+    play(game, clock, 500)
+    assert game.stuck_elapsed is not None       # counting down
+
+    game.settings["stuck_warning"] = False
+    play(game, clock, STUCK_DELAY_MS + 500)
+    assert game.menu.page == "playing"
+    assert game.stuck_elapsed is None
+
+
+def test_setting_is_reachable_from_the_prompt_itself(game):
+    """The Settings button on the prompt is how a player turns this off."""
+    game.start_level(3)
+    game.show_failed()
+    click(game, "settings")
+    assert any(action == "toggle:stuck_warning" for action, _, _, _ in game.menu.buttons())
+    click(game, "toggle:stuck_warning")
+    assert game.settings["stuck_warning"] is False
+    key(game, pygame.K_ESCAPE)
+    assert game.menu.page == "failed"
