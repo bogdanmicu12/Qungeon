@@ -7,6 +7,7 @@ from pathlib import Path
 import pygame
 from scripts.common_functions import font
 from scripts.level_validation import LevelError, parse_pos, read_level
+from scripts.quantum_menu import QuantumMenu
 
 
 BG = (17, 19, 30)
@@ -68,6 +69,7 @@ class MenuUI:
         self.pressed = None
         self.previews = {}
         self.settings_saved = True
+        self.quantum = QuantumMenu(self)
         self.images = {
             name: pygame.image.load(f"./assets/{name}.png")
             for name in ("tile", "wall", "pillar", "character", "end_tile", "box")
@@ -96,6 +98,7 @@ class MenuUI:
         return surface
 
     def open(self, page):
+        self.quantum.cancel_scroll_drag()
         if self.page == "playing":
             self.game.cancel_dragging()
         self.page = page
@@ -105,6 +108,14 @@ class MenuUI:
 
     def buttons(self):
         """Return (action, rectangle, label, supporting text) for this page."""
+        if self.page in ("quantum", "quantum_history", "quantum_map", "quantum_circuit"):
+            return self.quantum.buttons()
+        if self.page == "complete":
+            actions = [("quantum_run", "Run on Quantum Computer"),
+                       ("next_level", "Continue to next level") if self.game.has_next_level()
+                       else ("retry_run", "Play again"), ("main", "Return to menu")]
+            return [(action, pygame.Rect(180, 320+i*57, 440, 44), label, "")
+                    for i, (action, label) in enumerate(actions)]
         if self.page == "main":
             return [
                 (action, pygame.Rect(60, 300 + index * 58, 326, 46), label, hint)
@@ -114,7 +125,7 @@ class MenuUI:
                     ("settings", "Settings", "03"),
                     ("help", "How to play", "04"),
                 ))
-            ]
+            ] + [("quantum_history", pygame.Rect(482, 474, 258, 46), "Hardware runs", "")]
         if self.page in ("settings", "setup"):
             result = [
                 ("toggle:" + key, pygame.Rect(60, 204 + index * 83, 680, 70), title, description)
@@ -148,7 +159,9 @@ class MenuUI:
                 for index, (action, label) in enumerate(actions)]
 
     def back(self):
-        if self.page == "paused":
+        if self.page in ("quantum", "quantum_history", "quantum_map", "quantum_circuit"):
+            self.quantum.back()
+        elif self.page == "paused":
             self.open("playing")
         elif self.page in ("help", "settings"):
             self.open(self.return_page)
@@ -156,7 +169,11 @@ class MenuUI:
             self.open("main")
 
     def activate(self, action):
-        if action.startswith("toggle:"):
+        if action.startswith("quantum"):
+            self.quantum.activate(action)
+        elif action == "next_level":
+            self.game.next_level()
+        elif action.startswith("toggle:"):
             key = action.split(":", 1)[1]
             self.game.settings[key] = not self.game.settings[key]
             self.settings_saved = self.game.persist_settings(self.game.settings) is not False
@@ -186,9 +203,13 @@ class MenuUI:
             self.open(action)
 
     def handle_event(self, event):
+        if self.quantum.handle_event(event):
+            self.pressed = None
+            return
         buttons = self.buttons()
         if not buttons:
             return
+        self.focus = min(self.focus, len(buttons) - 1)
         if event.type == pygame.KEYDOWN:
             if event.key == pygame.K_ESCAPE:
                 self.back()
@@ -214,8 +235,10 @@ class MenuUI:
 
     def draw_button(self, button, index):
         action, rect, label, hint = button
+        if action.startswith("quantum:pillar:"):
+            return  # The map draws these hit targets as numbered pillar sprites.
         focused = index == self.focus
-        primary = action in ("setup", "start", "resume", "retry_run") or (action == "retry" and self.page == "failed")
+        primary = action in ("setup", "start", "resume", "quantum_run", "quantum:submit") or (action == "retry" and self.page == "failed")
         fill = ACCENT if primary else ((43, 44, 64) if focused else PANEL)
         pygame.draw.rect(self.game.screen, (8, 10, 17), rect.move(0, 4))
         pygame.draw.rect(self.game.screen, fill, rect)
@@ -240,8 +263,17 @@ class MenuUI:
                 self.text("<", rect.x + 18, rect.y + 14, 22, MUTED)
                 self.text(label, rect.x + 42, rect.y + 12, 26, color)
             else:
-                self.text(label, rect.x + 20, rect.y + 12, 26, color)
-                self.text(hint or ">", rect.right - 32, rect.y + 14, 22, color if primary else MUTED)
+                size = 26
+                reserved = 138 if action.startswith("quantum:history:") else 54
+                while size > 16 and font(size).size(label)[0] > rect.width - reserved:
+                    size -= 1
+                self.text(label, rect.x + 20, rect.y + 12, size, color)
+                hint_width = font(18 if hint else 22).size(hint or ">")[0]
+                self.text(hint or ">", rect.right - hint_width - 16, rect.y + 14,
+                          18 if hint else 22, color if primary else MUTED)
+                if action.startswith("quantum:history:") and action.split(":")[-1].isdigit():
+                    entry = self.quantum.history.data["runs"][int(action.split(":")[-1])]
+                    self.text(entry.get("created", ""), rect.x + 20, rect.y + 35, 18, MUTED)
 
     def level_preview(self, level):
         """A thumbnail of the level's layout, or a blank card if it is broken.
@@ -318,11 +350,19 @@ class MenuUI:
 
     def draw(self):
         screen = self.game.screen
+        if self.page in ("quantum", "quantum_history", "quantum_map", "quantum_circuit"):
+            self.quantum.draw()
+            buttons = self.buttons()
+            self.focus = min(self.focus, len(buttons) - 1)
+            for index, button in enumerate(buttons):
+                self.draw_button(button, index)
+            pygame.display.update()
+            return
         overlay = self.page in ("paused", "failed", "complete")
         if overlay:
             self.game.display_game(update=False, interactive=False)
             screen.blit(self.veil, (0, 0))
-            panel = pygame.Rect(204, 87, 392, 427)
+            panel = pygame.Rect(140, 87, 520, 427) if self.page == "complete" else pygame.Rect(204, 87, 392, 427)
             pygame.draw.rect(screen, (8, 10, 17), panel.move(0, 7))
             pygame.draw.rect(screen, PANEL, panel)
             pygame.draw.rect(screen, EDGE, panel, 2)
@@ -334,11 +374,11 @@ class MenuUI:
             full_run = self.game.run_mode == "full"
             title = {"paused": "Paused",
                      "failed": "Run failed" if full_run else "Level failed",
-                     "complete": "Run complete" if full_run else "Level complete"}[self.page]
+                     "complete": "Run complete" if full_run and not self.game.has_next_level() else "Level complete"}[self.page]
             self.text(title, 400, 170, 46, INK, True)
             self.text(f"LEVEL {self.game.current_level:02}   /   {'FULL RUN' if self.game.run_mode == 'full' else 'SINGLE LEVEL'}", 400, 220, 19, MUTED, True)
             if self.page != "paused":
-                message = "The level can no longer be completed." if self.page == "failed" else "All levels completed." if self.game.run_mode == "full" else "Level completed."
+                message = "The level can no longer be completed." if self.page == "failed" else "All levels completed." if full_run and not self.game.has_next_level() else "Your solved circuit is ready to explore."
                 self.text(message, 400, 268, 23, MUTED, True)
         else:
             screen.blit(self.background, (0, 0))

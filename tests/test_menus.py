@@ -43,6 +43,9 @@ def test_start_requires_setup_and_full_run_advances(game):
     click(game, "start")
     assert (game.menu.page, game.current_level, game.run_mode) == ("playing", 1, "full")
     game.advance_level()
+    assert (game.current_level, game.menu.page) == (1, "complete")
+    assert game.quantum_run.circuit["level"] == 1
+    click(game, "next_level")
     assert (game.current_level, game.menu.page) == (2, "playing")
     game.start_level(game.available_levels[-1], "full")
     game.advance_level()

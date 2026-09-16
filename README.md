@@ -24,12 +24,13 @@ docker compose up
 
 The browser loads the original Python game code, assets, and levels directly.
 Only the small browser adapter and the required Unitary Alpha modules live in
-`web/`. There is no application backend, database, login, or save service.
+`web/`. Normal play is static; hardware execution uses the optional personal
+Quantum Inspire bridge described below.
 
 Serve it locally from the repository root:
 
 ```bash
-python -3.13 -m http.server 8000
+python -m http.server 8000
 ```
 
 Open <http://localhost:8000> to see the main menu. To jump directly into a
@@ -38,6 +39,101 @@ single level, use a URL such as <http://localhost:8000/?level=5>.
 For production, serve the repository root from any HTTPS static-file host with
 `index.html` as the entry point. No build step or server-side Python process is
 required.
+
+# Run a completed circuit on Quantum Inspire
+
+Every completed level has a purple **Run on Quantum Computer** button. It opens
+the Quantum Lab, checks available hardware, and shows the selected processor and
+shot count before submission. Full runs now pause at each completion screen;
+**Continue to next level** resumes the run.
+
+## One-time setup
+
+Use the same Python environment as the game (Python 3.13 recommended):
+
+```bash
+python -m pip install -r requirements-quantum.txt
+qi login
+```
+
+Sign in with your own Quantum Inspire account in the browser opened by the
+official CLI. Credentials remain in the SDK's `~/.quantuminspire/config.json`;
+Qungeon does not ask for, store, or send credentials to its browser client.
+The optional requirements pin a tested, mutually compatible SDK pair. Newer
+individual SDK packages currently have conflicting dependency requirements.
+
+- **Desktop:** start `python Qungeon.py` as usual after signing in.
+- **Browser:** start `python -m scripts.quantum_server` from the repository root,
+  then open [localhost:8000](http://localhost:8000). Use `--port 8001` if needed.
+  This replaces `python -m http.server` for hardware-enabled play.
+- **Static hosting / default Docker image:** gameplay still works; the Quantum
+  Lab shows setup instructions. Hardware execution requires the personal
+  launcher or desktop game. The bridge binds to loopback, checks same-origin
+  requests, and serves only public game files. It is not a multi-user server.
+
+## Hardware and results
+
+The integration supports the documented **Tuna-5, Tuna-9 and Tuna-17** gate set.
+It checks live account access, hardware status, qubit count and connectivity,
+then chooses the smallest compatible available processor. Emulators, unknown
+device families, offline devices and devices being calibrated are excluded.
+There is no automatic simulator fallback.
+
+Runs use **1,024 shots**, capped by the device limit. The captured circuit includes
+the level's initial gates and every applied player gate, including controlled H
+and fractional Y rotations. Unused pillars are measured too. Qiskit routes gates
+onto the actual device topology using a restricted supported basis. The entire
+physical register is initialized; only game pillars appear in the outcomes.
+Conservative limits are 17 pillars, 512 input operations, compiled depth 200,
+and 100 two-qubit gates. Circuits with post-selection, intermediate measurements,
+extra ancillas or unsupported operations are refused before submission.
+
+The Quantum Lab shows queue/running status, measured counts and percentages,
+the actual number of completed shots, and ideal probabilities from the captured
+circuit. Outcome bits read **left to right in pillar order**. **Pillar map**, at
+the bottom right, shows the saved completed level with numbered pillar sprites,
+walls, exit, player and remaining loot. Select a pillar with the mouse or keyboard
+to see its coordinates and measured versus ideal probabilities for 0 and 1.
+Saved runs keep their map even after moving to another level or restarting;
+older runs fall back to the level layout. Scroll the outcomes table to explore
+all results, including small counts; column headings remain visible.
+Hardware noise and Tuna's 5-degree rotation quantization can cause differences
+from ideal probabilities. Partial runs are explicitly labeled.
+
+**View circuit**, next to **Pillar map** on the results screen, shows the
+captured logical circuit, including level setup, controlled gates and fractional
+rotations. Wires use the same pillar numbers as the map and result bits. Read left
+to right. Scroll vertically through pillars and horizontally through gates with
+a trackpad, Shift + mouse wheel, arrow keys, or draggable scrollbars. A regular
+mouse wheel scrolls horizontally when all pillars fit. Labels remain pinned.
+The circuit screen has only a **Back** button. Select a gate for its name and operands. **M** marks the
+final measurement added for hardware runs. The processor's compiled native-gate
+sequence may differ. Older saved gates without notation appear as **U**.
+
+You can keep playing while a job runs. **Hardware runs** on the main menu reopens
+the latest 50 submitted runs saved on this computer, including after a browser
+refresh or game restart. The launcher must still be running for browser access.
+**Run again** from the current level's results prepares a new run; the previous
+result stays in history. Local job records and SDK recovery files live in
+`.qungeon-quantum/` (ignored by Git). Keep this directory to recover pending jobs;
+exclude it when publishing static files. Jobs also remain in
+[My QI](https://compute.quantum-inspire.com/).
+
+Submission is guarded against double clicks, repeated requests and restarts.
+If a connection drops during submission, Qungeon never silently resubmits:
+use **Check status** and inspect My QI if acceptance could not be confirmed.
+Expired account access can be renewed with `qi login` while the game is open.
+
+Integration tests use the installed SDK for conversion, transpilation, cQASM
+serialization and saved-job recovery, with network calls replaced by controlled
+test responses. They do not consume hardware shots:
+
+```bash
+python -m pytest tests -q
+```
+
+Implementation references: [official SDK usage](https://qutech-delft.github.io/qiskit-quantuminspire/getting_started/submitting.html),
+[Tuna operational constraints](https://www.quantum-inspire.com/kbase/tuna-operational-specifics/).
 
 # Desktop development
 
@@ -92,7 +188,7 @@ freezes gameplay, including movement and correlation animations. Resume,
 restart the current level, return to the menu, or open How to Play from there.
 Changing tabs or losing window focus also pauses the game.
 
-Completing a single level or the final level opens a completion screen instead
+Completing each level opens a completion screen instead
 of closing the game. The failure screen is driven by the level solver below: it
 appears when the level can no longer be completed. Restart level restores the
 level and its inventory, Settings opens the settings page and comes back to the

@@ -1,0 +1,12 @@
+.git
+.env
+.env.*
+*.env
+.qungeon-quantum
+.qungeon-settings.json
+.menu-previews
+QungeonEnv
+QungeonEnv313
+.venv
+__pycache__
+.pytest_cache
