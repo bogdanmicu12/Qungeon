@@ -16,23 +16,22 @@ RUN_DIRECTORY = Path(__file__).resolve().parents[1] / ".qungeon-quantum"
 TUNA_NAMES = {"Tuna-5": 5, "Tuna-9": 9, "Tuna-17": 17}
 MAX_DEPTH = 200
 MAX_TWO_QUBIT_GATES = 100
+HARDWARE_UNAVAILABLE = "No compatible Tuna processor is available for this circuit. Devices may be offline, busy calibrating, too small, or require too many gates."
+HARDWARE_CHANGED = "This processor is no longer available. Check hardware again."
 
 
 class RunError(Exception):
-    def __init__(self, state, message):
+    def __init__(self, state, message, retryable=False):
         self.state = state
+        self.retryable = retryable
         super().__init__(message)
 
 
-def make_circuit(payload):
-    """Validate a small JSON circuit before passing anything to the SDK."""
-    import numpy as np
-    from qiskit import QuantumCircuit
-
+def circuit_identity(payload):
+    """Validate the metadata needed to identify even an unsuccessful run."""
     if not isinstance(payload, dict):
         raise ValueError("Invalid circuit.")
-    validate_scene(payload.get("scene"))
-    labels, operations = payload.get("labels"), payload.get("operations")
+    labels = payload.get("labels")
     level = payload.get("level")
     if type(level) is not int or not 1 <= level <= 9999:
         raise ValueError("Invalid level.")
@@ -40,6 +39,17 @@ def make_circuit(payload):
             or any(not isinstance(s, str) or not re.fullmatch(r"-?\d{1,4},-?\d{1,4}", s) for s in labels)
             or len(set(labels)) != len(labels)):
         raise ValueError(f"Hardware runs support 1 to {MAX_QUBITS} distinct pillars.")
+    return level, labels
+
+
+def make_circuit(payload):
+    """Validate a small JSON circuit before passing anything to the SDK."""
+    import numpy as np
+    from qiskit import QuantumCircuit
+
+    level, labels = circuit_identity(payload)
+    validate_scene(payload.get("scene"))
+    operations = payload.get("operations")
     if not isinstance(operations, list) or len(operations) > MAX_OPERATIONS:
         raise ValueError("Circuit has too many operations.")
     qc = QuantumCircuit(len(labels), len(labels), name=f"Qungeon level {level:02}")
@@ -180,11 +190,20 @@ class QuantumService:
                 self.records[key] = json.loads(path.read_text(encoding="utf-8"))
         return self.records.get(key)
 
-    @staticmethod
-    def public(record):
+    def _can_retry(self, record):
+        # Recognize hardware errors saved before retry support was introduced.
+        retryable = record.get("retryable", record.get("message") in (HARDWARE_UNAVAILABLE, HARDWARE_CHANGED))
+        return (record["state"] in ("unavailable", "setup") and retryable is True
+                and isinstance(record.get("circuit"), dict)
+                and isinstance(record["circuit"].get("operations"), list)
+                and not record.get("job_id")
+                and not (self.directory / (record["request_id"] + ".submitted")).exists())
+
+    def public(self, record):
         result = {k: v for k, v in record.items() if k != "circuit" and (k != "ideal" or record["state"] == "done")}
+        result["retryable"] = self._can_retry(record)
         # Recover the diagram from the immutable snapshot, including older runs.
-        if record.get("labels"):
+        if record.get("labels") and record["state"] not in ("setup", "unavailable"):
             result["diagram"] = circuit_diagram(record.get("circuit"))
         return result
 
@@ -192,7 +211,7 @@ class QuantumService:
         if not isinstance(payload, dict):
             raise ValueError("Invalid request.")
         action, key = payload.get("action"), payload.get("request_id", "")
-        if action not in ("prepare", "submit", "status", "history") or not re.fullmatch(r"[0-9a-f]{32}", str(key)):
+        if action not in ("prepare", "enqueue", "retry", "submit", "status", "history") or not re.fullmatch(r"[0-9a-f]{32}", str(key)):
             raise ValueError("Invalid request.")
         # Serializing actions also protects the SDK's shared token-refresh file.
         with self.lock:
@@ -201,22 +220,36 @@ class QuantumService:
                 for path in sorted(self.directory.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True)[:50]:
                     try:
                         r = self._load(path.stem)
-                        if r.get("state") not in ("ready", "setup", "unavailable"):
+                        if (r.get("state") not in ("ready", "setup", "unavailable") or r.get("automatic")) and r.get("labels"):
                             records.append({k: r[k] for k in ("request_id", "level", "labels", "state", "created", "backend") if k in r})
                     except (OSError, ValueError):
                         continue
                 return {"state": "history", "runs": records}
+            if action == "retry":
+                # Another window/process may already have retried this run.
+                self.records.pop(key, None)
             record = self._load(key)
             if record is None:
-                if action != "prepare":
+                if action not in ("prepare", "enqueue"):
                     return {"state": "unavailable", "message": "This saved run could not be found on this computer."}
                 record = {"request_id": key, "circuit": payload.get("circuit"), "state": "idle",
-                          "created": time.strftime("%Y-%m-%d %H:%M"), "message": ""}
+                          "created": time.strftime("%Y-%m-%d %H:%M"), "message": "", "automatic": action == "enqueue"}
                 self.records[key] = record
-            elif action == "prepare" and payload.get("circuit") != record["circuit"]:
+            elif action in ("prepare", "enqueue") and payload.get("circuit") != record["circuit"]:
                 raise ValueError("A run cannot change its circuit.")
             try:
-                if action == "prepare" and record["state"] in ("idle", "setup", "unavailable", "ready"):
+                if action == "retry" and self._can_retry(record):
+                    # Use the host's immutable snapshot and the original request
+                    # ID, retaining the submission fence across retries/restarts.
+                    self._prepare(record)
+                    self._submit(key, record)
+                elif action == "enqueue" and record["state"] in ("idle", "ready"):
+                    # Preparation and submission stay on the host, so changing
+                    # levels cannot interrupt the handoff between those steps.
+                    record["automatic"] = True
+                    self._prepare(record)
+                    self._submit(key, record)
+                elif action == "prepare" and record["state"] in ("idle", "setup", "unavailable", "ready"):
                     self._prepare(record)
                     self._save(key, record)
                 elif action == "submit" and record["state"] == "ready":
@@ -230,7 +263,10 @@ class QuantumService:
                 if exc.state == "setup" and record["state"] in ("queued", "running", "submitting", "uncertain"):
                     record["message"] = str(exc)
                 else:
-                    record.update(state=exc.state, message=str(exc))
+                    # A retry interrupted by expired credentials remains
+                    # available once the player reconnects their account.
+                    retryable = exc.retryable or (action == "retry" and exc.state == "setup")
+                    record.update(state=exc.state, message=str(exc), retryable=retryable)
             except Exception as exc:
                 # Do not put provider exceptions, response bodies or credentials
                 # into the game, browser, or saved history.
@@ -244,9 +280,15 @@ class QuantumService:
                     record.update(state="setup" if auth_error else "unavailable",
                                   message="Account access expired. Run qi login and check again." if auth_error
                                   else "Could not check Quantum Inspire. Check your connection and try again.")
+                    if action == "retry":
+                        record["retryable"] = True
+            if (record.get("automatic") or action == "retry" or self._can_retry(record)) and record.get("labels"):
+                self._save(key, record)
             return self.public(record)
 
     def _prepare(self, record):
+        level, labels = circuit_identity(record["circuit"])
+        record.update(level=level, labels=labels)
         # Imports stay inside the optional SDK boundary.
         provider = self.provider()
         from qiskit.exceptions import QiskitError
@@ -267,14 +309,14 @@ class QuantumService:
                 compiled = compile_circuit(qc, info)
             except (ValueError, RuntimeError, QiskitError):
                 continue
-            record.update(state="ready", backend=backend.name, backend_id=backend.id,
+            record.update(state="ready", retryable=False, backend=backend.name, backend_id=backend.id,
                           shots=min(SHOTS, info.max_number_of_shots), qubits=qc.num_qubits,
                           physical_qubits=info.nqubits, depth=compiled.depth(),
                           level=record["circuit"]["level"], labels=record["circuit"]["labels"],
                           scene=record["circuit"].get("scene"),
                           message="Circuit checked. Ready for a real quantum processor.")
             return
-        raise RunError("unavailable", "No compatible Tuna processor is available for this circuit. Devices may be offline, busy calibrating, too small, or require too many gates.")
+        raise RunError("unavailable", HARDWARE_UNAVAILABLE, retryable=True)
 
     def _submit(self, key, record):
         provider = self.provider()
@@ -282,7 +324,7 @@ class QuantumService:
         info = backend.get_backend_type()
         qc = make_circuit(record["circuit"])
         if not eligible_device(info, qc.num_qubits):
-            raise RunError("unavailable", "This processor is no longer available. Check hardware again.")
+            raise RunError("unavailable", HARDWARE_CHANGED, retryable=True)
         compiled = compile_circuit(qc, info)
         from qiskit.quantum_info import Statevector
         ideal = Statevector.from_instruction(qc).probabilities_dict()

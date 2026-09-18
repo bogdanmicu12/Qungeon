@@ -111,8 +111,10 @@ final measurement added for hardware runs. The processor's compiled native-gate
 sequence may differ. Older saved gates without notation appear as **U**.
 
 You can keep playing while a job runs. **Hardware runs** on the main menu reopens
-the latest 50 submitted runs saved on this computer, including after a browser
+the latest 50 saved runs and automatic attempts on this computer, including after a browser
 refresh or game restart. The launcher must still be running for browser access.
+Browse runs with the mouse wheel, trackpad, scrollbar, or keyboard. Refresh keeps
+the list and scroll position visible while the button shows **Refreshing...**.
 **Run again** from the current level's results prepares a new run; the previous
 result stays in history. Local job records and SDK recovery files live in
 `.qungeon-quantum/` (ignored by Git). Keep this directory to recover pending jobs;
@@ -123,6 +125,12 @@ Submission is guarded against double clicks, repeated requests and restarts.
 If a connection drops during submission, Qungeon never silently resubmits:
 use **Check status** and inspect My QI if acceptance could not be confirmed.
 Expired account access can be renewed with `qi login` while the game is open.
+
+If hardware was unavailable, open that saved attempt in **Hardware runs** and
+choose **Retry**. It rechecks current hardware and submits the original completed
+circuit, using up to 1,024 shots. This also works for attempts saved before retry
+support was added. Repeated clicks and restarts cannot submit the same run twice;
+jobs already submitted or awaiting confirmation use **Check status** instead.
 
 Integration tests use the installed SDK for conversion, transpilation, cQASM
 serialization and saved-job recovery, with network calls replaced by controlled
@@ -175,6 +183,18 @@ UI text uses a bundled ASCII subset of DejaVu Sans; its license is in
 - **Decoherence time mode** is a saved preference only, marked coming soon;
   it does not add a timer or change quantum states yet.
 - **Entanglement guides** toggles the connections shown on pillar hover.
+- **Level completion screens** (on by default) controls pauses between levels
+  in a full run. Turn it off to continue directly to the next puzzle. Single
+  levels and the final run summary still show their completion screens.
+- When completion screens are off, **Queue levels on Quantum Inspire** appears
+  (off by default). Enabling it automatically checks and submits each completed
+  level, including the final one, using up to 1,024 shots on compatible hardware.
+  It requires the same connected account and quantum-enabled browser launcher
+  as manual runs. Play continues while submissions are processed. Results and
+  failed connection/compatibility checks appear in **Hardware runs**; unavailable
+  circuits are skipped, and uncertain submissions are never automatically retried.
+  Keep the game and launcher open while submissions finish. Changing settings
+  affects future level completions; jobs already sent continue processing.
 - **Stuck detection** (on by default) offers a restart once the level can no
   longer be completed. Turning it off stops the prompt and the solver behind
   it; see the level solver section below. It replaces the old Placeholder
@@ -188,8 +208,8 @@ freezes gameplay, including movement and correlation animations. Resume,
 restart the current level, return to the menu, or open How to Play from there.
 Changing tabs or losing window focus also pauses the game.
 
-Completing each level opens a completion screen instead
-of closing the game. The failure screen is driven by the level solver below: it
+Completing a level opens a completion screen unless intermediate screens are
+disabled for a full run. The failure screen is driven by the level solver below: it
 appears when the level can no longer be completed. Restart level restores the
 level and its inventory, Settings opens the settings page and comes back to the
 prompt, and Return to menu opens the main menu.

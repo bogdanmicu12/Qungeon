@@ -63,6 +63,9 @@ class Game:
         self.hop = None
         self.current_level = args.level
         self.quantum_run = None
+        self.background_quantum_runs = []
+        self.quantum_notice = ""
+        self.quantum_notice_until = 0
         self.player = None
         self.hotbar = Hotbar()
         pygame.display.set_caption(GAME_TITLE)
@@ -205,7 +208,37 @@ class Game:
             self.quantum_run = QuantumRun(capture_circuit(self))
         except ValueError as exc:
             self.quantum_run = QuantumRun(error=str(exc))
+        skip_screen = self.run_mode == "full" and not self.settings["full_run_completion"]
+        if skip_screen and self.settings["auto_quantum_runs"]:
+            if self.quantum_run.circuit is not None:
+                self.background_quantum_runs.append(self.quantum_run)
+                self.quantum_run.command("enqueue")
+                self.show_quantum_notice(f"Level {self.current_level:02}: checking hardware and queueing your circuit...")
+            else:
+                self.show_quantum_notice(f"Level {self.current_level:02}: this circuit cannot run on hardware.")
+        # Opening completion first also leaves a recovery route if the next
+        # level file fails validation; loading it must never strand the player.
         self.menu.open("complete")
+        if skip_screen and self.has_next_level():
+            self.next_level()
+
+    def show_quantum_notice(self, message):
+        self.quantum_notice = message
+        self.quantum_notice_until = pygame.time.get_ticks() + 8000
+
+    def update_background_quantum_runs(self):
+        for run in self.background_quantum_runs[:]:
+            previous = run.data["state"]
+            run.update()
+            state = run.data["state"]
+            if state != previous:
+                level = run.circuit["level"]
+                if state in ("queued", "running", "done"):
+                    self.show_quantum_notice(f"Level {level:02}: hardware run {state}. See Hardware runs in the menu.")
+                elif state in ("setup", "unavailable", "failed", "uncertain"):
+                    self.show_quantum_notice(f"Level {level:02}: hardware run needs attention. See Hardware runs in the menu.")
+            if not run.busy and state not in ("queued", "running", "submitting"):
+                self.background_quantum_runs.remove(run)
 
     def next_level(self):
         index = self.available_levels.index(self.current_level)
@@ -362,7 +395,8 @@ class Game:
         now = pygame.time.get_ticks()
         elapsed = min(now - self.last_tick, 100)
         self.last_tick = now
-        if self.quantum_run is not None:
+        self.update_background_quantum_runs()
+        if self.quantum_run is not None and self.quantum_run not in self.background_quantum_runs:
             self.quantum_run.update()
         self.menu.quantum.update()
         was_playing = self.menu.page == "playing"

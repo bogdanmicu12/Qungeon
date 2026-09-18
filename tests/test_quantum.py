@@ -502,7 +502,7 @@ def test_circuit_scrolls_both_axes_and_selects_readout_after_scrolling(game):
 def test_saved_circuit_view_survives_changing_levels(game, sdk):
     game.start_level(8)
     circuit = capture_circuit(game)
-    data = sdk.QuantumService.public({"state": "done", "labels": circuit["labels"], "circuit": circuit})
+    data = sdk.QuantumService().public({"state": "done", "labels": circuit["labels"], "circuit": circuit})
     # A recovered browser run only receives the display snapshot, not matrices.
     assert "circuit" not in data
     game.start_level(1)
@@ -571,13 +571,12 @@ def test_refresh_on_right_and_home_buttons_align(game):
     assert home["quantum_history"].y == home["help"].y
     assert home["quantum_history"].height == home["help"].height
     history = QuantumRun({})
-    history.data = {"runs": [{"level": 1, "state": "done"}] * 12}
+    history.data = {"runs": [{"request_id": f"{i:032x}", "level": 1, "state": "done"} for i in range(12)]}
     game.menu.quantum.history = history
-    game.menu.quantum.history_offset = 4
     game.menu.open("quantum_history")
     buttons = {action: rect for action, rect, *_ in game.menu.buttons()}
     assert buttons["quantum:refresh_history"].right == 740
-    rects = list(buttons.values())
+    rects = [game.menu.button_hit_rect(action, rect) for action, rect in buttons.items()]
     assert not any(a.colliderect(b) for i, a in enumerate(rects) for b in rects[i+1:])
 
 
@@ -600,3 +599,237 @@ def test_horizontal_wheel_fallback_and_drag_cancellation(game):
     assert scroll.x == scroll.max_x
     game.menu.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_ESCAPE))
     assert game.menu.page == "quantum" and scroll.drag is None
+
+
+def test_automatic_enqueue_prepares_and_submits_once_across_restarts(game, sdk, tmp_path):
+    backend, provider = network_fixture()
+    payload = {"action": "enqueue", "request_id": "3" * 32, "circuit": capture_circuit(game)}
+    service = sdk.QuantumService(tmp_path, lambda: provider)
+    result = service.command(payload)
+    assert result["state"] == "queued" and result["automatic"] is True
+    assert result["shots"] == 1024
+    assert len(backend.submitted) == 1
+    service.command(payload)
+    recovered = sdk.QuantumService(tmp_path, lambda: provider)
+    assert recovered.command(payload)["state"] == "queued"
+    assert len(backend.submitted) == 1
+    assert recovered.command({"action": "history", "request_id": "3" * 32})["runs"][0]["level"] == 1
+
+
+@pytest.mark.parametrize("state", ["setup", "unavailable"])
+def test_automatic_unavailable_runs_are_saved_without_submitting(game, sdk, tmp_path, state):
+    backend, provider = network_fixture(device(status="offline"))
+    def missing():
+        raise sdk.RunError("setup", "Connect your account with qi login.")
+    service = sdk.QuantumService(tmp_path, missing if state == "setup" else lambda: provider)
+    payload = {"action": "enqueue", "request_id": "4" * 32, "circuit": capture_circuit(game)}
+    result = service.command(payload)
+    assert result["state"] == state
+    recovered = sdk.QuantumService(tmp_path, lambda: provider)
+    rows = recovered.command({"action": "history", "request_id": "4" * 32})["runs"]
+    assert rows[0]["level"] == 1 and rows[0]["state"] == state
+    backend.info.status = "idle"
+    # A failed automatic attempt is not silently replayed after reconnection.
+    assert recovered.command(payload)["state"] == state
+    assert not backend.submitted
+    game.menu.quantum.run = QuantumRun({"level": 1, "labels": result["labels"]})
+    game.menu.quantum.run.data = result
+    game.menu.open("quantum")
+    assert "quantum:prepare" not in [b[0] for b in game.menu.buttons()]
+    game.menu.draw()
+
+
+def test_automatic_uncertain_submission_is_never_repeated(game, sdk, tmp_path):
+    backend, provider = network_fixture()
+    calls = []
+    def interrupted(*args, **kwargs):
+        calls.append(1)
+        raise TimeoutError("private account detail")
+    backend.run = interrupted
+    payload = {"action": "enqueue", "request_id": "5" * 32, "circuit": capture_circuit(game)}
+    service = sdk.QuantumService(tmp_path, lambda: provider)
+    assert service.command(payload)["state"] == "uncertain"
+    result = sdk.QuantumService(tmp_path, lambda: provider).command(payload)
+    assert result["state"] == "uncertain" and len(calls) == 1
+    assert "private account detail" not in json.dumps(result)
+
+
+def test_automatic_controller_disconnect_keeps_submission_uncertain(game):
+    def disconnected(payload):
+        assert payload["action"] == "enqueue" and payload["circuit"]["level"] == 1
+        raise ConnectionError("Connection lost")
+    run = QuantumRun(capture_circuit(game), transport=disconnected)
+    run._desktop_command({"action": "enqueue", "circuit": run.circuit})
+    run.update()
+    assert run.data["state"] == "uncertain"
+    run.command("enqueue")
+    assert not run.busy
+
+
+@pytest.mark.parametrize("legacy", [False, True])
+def test_retry_saved_unavailable_circuit_once_after_restart(game, sdk, tmp_path, legacy):
+    backend, provider = network_fixture(device(status="offline", max_number_of_shots=512))
+    service = sdk.QuantumService(tmp_path, lambda: provider)
+    key = "6" * 32
+    original = capture_circuit(game)
+    result = service.command({"action": "enqueue", "request_id": key, "circuit": original})
+    assert result["state"] == "unavailable" and result["retryable"]
+    if legacy:
+        record = service.records[key]
+        record.pop("retryable")
+        service._save(key, record)
+    stale = sdk.QuantumService(tmp_path, lambda: provider)
+    stale._load(key)
+    recovered = sdk.QuantumService(tmp_path, lambda: provider)
+    retry = {"action": "retry", "request_id": key}
+    # Still offline: the same attempt stays actionable and sends nothing.
+    result = recovered.command(retry)
+    assert result["state"] == "unavailable" and result["retryable"]
+    assert not backend.submitted
+    backend.info.status = "idle"
+    game.start_level(2)
+    # Retry ignores replacement circuits; it uses the original host snapshot.
+    result = recovered.command({**retry, "circuit": capture_circuit(game)})
+    assert result["state"] == "queued" and result["retryable"] is False
+    assert result["level"] == 1 and result["shots"] == 512
+    assert recovered.records[key]["circuit"] == original
+    assert "circuit" not in result
+    assert recovered.command(retry)["state"] == "queued"
+    assert stale.command(retry)["state"] == "queued"
+    assert sdk.QuantumService(tmp_path, lambda: provider).command(retry)["state"] == "queued"
+    assert len(backend.submitted) == 1
+    assert backend.submitted[0][1]["shots"] == 512
+    rows = recovered.command({"action": "history", "request_id": key})["runs"]
+    assert len(rows) == 1 and rows[0]["state"] == "queued"
+
+
+@pytest.mark.parametrize("failure", ["connection", "account"])
+def test_retry_can_recover_from_pre_submission_connection_or_account_failure(game, sdk, tmp_path, failure):
+    backend, provider = network_fixture(device(status="offline"))
+    service = sdk.QuantumService(tmp_path, lambda: provider)
+    key = "7" * 32
+    service.command({"action": "enqueue", "request_id": key, "circuit": capture_circuit(game)})
+    def interrupted():
+        if failure == "account":
+            raise sdk.RunError("setup", "Run qi login to reconnect your account.")
+        raise ConnectionError("private account details")
+    service.provider_factory = interrupted
+    result = service.command({"action": "retry", "request_id": key})
+    assert result["state"] == ("setup" if failure == "account" else "unavailable")
+    assert result["retryable"] and "private" not in json.dumps(result)
+    assert not backend.submitted
+    backend.info.status = "idle"
+    service.provider_factory = lambda: provider
+    assert service.command({"action": "retry", "request_id": key})["state"] == "queued"
+    assert len(backend.submitted) == 1
+
+
+def test_ambiguous_retry_cannot_submit_again(game, sdk, tmp_path):
+    backend, provider = network_fixture(device(status="offline"))
+    service = sdk.QuantumService(tmp_path, lambda: provider)
+    key = "8" * 32
+    service.command({"action": "enqueue", "request_id": key, "circuit": capture_circuit(game)})
+    backend.info.status = "idle"
+    calls = []
+    def interrupted(*args, **kwargs):
+        calls.append(1)
+        raise TimeoutError("private account details")
+    backend.run = interrupted
+    retry = {"action": "retry", "request_id": key}
+    result = service.command(retry)
+    assert result["state"] == "uncertain" and result["retryable"] is False
+    assert "private" not in json.dumps(result)
+    result = sdk.QuantumService(tmp_path, lambda: provider).command(retry)
+    assert result["state"] == "uncertain" and len(calls) == 1
+
+
+@pytest.mark.parametrize("guard", ["invalid", "failed", "fence", "job_id"])
+def test_retry_does_not_replay_invalid_or_already_submitted_runs(game, sdk, tmp_path, guard):
+    backend, provider = network_fixture(device(status="offline"))
+    service = sdk.QuantumService(tmp_path, lambda: provider)
+    key = "9" * 32
+    circuit = capture_circuit(game)
+    if guard == "invalid":
+        circuit["operations"][0]["qubits"] = [999]
+    service.command({"action": "enqueue", "request_id": key, "circuit": circuit})
+    if guard == "failed":
+        service.records[key]["state"] = "failed"
+    elif guard == "job_id":
+        service.records[key]["job_id"] = "already-submitted"
+    elif guard == "fence":
+        (tmp_path / (key + ".submitted")).touch()
+    service._save(key, service.records[key])
+    backend.info.status = "idle"
+    result = service.command({"action": "retry", "request_id": key})
+    assert result["retryable"] is False and not backend.submitted
+    assert result["state"] == ("failed" if guard == "failed" else "unavailable")
+
+
+def test_retry_saved_run_button_is_responsive_and_guards_double_clicks(game):
+    entered, release, finished = threading.Event(), threading.Event(), threading.Event()
+    calls = []
+    run = QuantumRun({"level": 1, "labels": ["1,1"]})
+    def transport(payload):
+        calls.append(payload)
+        entered.set()
+        release.wait(2)
+        finished.set()
+        return {"state": "queued", "backend": "Test hardware"}
+    run.transport = transport
+    run.data = {"state": "unavailable", "retryable": True, "message": "Hardware unavailable."}
+    game.menu.quantum.run = run
+    game.menu.open("quantum")
+    assert [(b[0], b[2]) for b in game.menu.buttons()] == [("back", "Back"), ("quantum:retry", "Retry")]
+    game.menu.draw()
+    try:
+        game.menu.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_TAB))
+        game.menu.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_RETURN))
+        assert entered.wait(1) and run.busy
+        assert [b[0] for b in game.menu.buttons()] == ["back"]
+        game.menu.activate("quantum:retry")
+        assert calls == [{"action": "retry", "request_id": run.request_id}]
+        game.menu.draw()
+    finally:
+        release.set()
+        assert finished.wait(1)
+
+
+def test_return_to_hardware_history_refreshes_retried_status(game):
+    loaded = threading.Event()
+    def history(payload):
+        assert payload["action"] == "history"
+        loaded.set()
+        return {"state": "history", "runs": []}
+    menu = game.menu.quantum
+    menu.history = QuantumRun({}, transport=history)
+    menu.run = QuantumRun({"level": 1, "labels": ["1,1"]})
+    menu.run.data = {"state": "queued"}
+    menu.return_page = "quantum_history"
+    game.menu.open("quantum")
+    game.menu.back()
+    assert game.menu.page == "quantum_history" and loaded.wait(1)
+
+
+@pytest.mark.parametrize("browser", [False, True])
+def test_retry_controller_disconnect_requires_status_before_retrying(game, monkeypatch, browser):
+    import asyncio
+    import sys
+    run = QuantumRun({"level": 1, "labels": ["1,1"]})
+    run.data = {"state": "unavailable", "retryable": True}
+    payload = {"action": "retry", "request_id": run.request_id}
+    def disconnected(*args, **kwargs):
+        raise ConnectionError("Connection lost")
+    if browser:
+        monkeypatch.setitem(sys.modules, "pyodide.http", SimpleNamespace(pyfetch=disconnected))
+        asyncio.run(run._browser_command(payload))
+    else:
+        run.transport = disconnected
+        run._desktop_command(payload)
+    run.update()
+    assert run.data["state"] == "uncertain"
+    run.command("retry")
+    assert not run.busy
+    game.menu.quantum.run = run
+    game.menu.open("quantum")
+    assert "quantum:retry" not in [b[0] for b in game.menu.buttons()]
+    assert "quantum:status" in [b[0] for b in game.menu.buttons()]

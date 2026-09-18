@@ -16,7 +16,9 @@ class QuantumMenu:
         self.return_page = "complete"
         self.history_return = "main"
         self.result_scroll = ScrollView((78, 274, 640, 155), (640, 0), wheel_rect=(60, 196, 680, 279))
-        self.history_offset = 0
+        self.history_scroll = ScrollView((60, 195, 668, 280), (668, 0), wheel_rect=(60, 195, 680, 280))
+        self._history_data = None
+        self._history_rows = []
         self._outcome_data = None
         self._outcomes = []
         self.pillar_map = None
@@ -25,7 +27,8 @@ class QuantumMenu:
         self.map_return = "quantum"
 
     def update(self):
-        if self.run is not None and self.run is not self.menu.game.quantum_run:
+        if (self.run is not None and self.run is not self.menu.game.quantum_run
+                and self.run not in self.menu.game.background_quantum_runs):
             self.run.update()
         if self.history is not None:
             self.history.update()
@@ -43,8 +46,55 @@ class QuantumMenu:
         self.history_return = self.menu.page
         self.history = QuantumRun({})
         self.history.command("history")
-        self.history_offset = 0
+        self.history_scroll.y = 0
+        self._history_data = None
+        self._history_rows = []
         self.menu.open("quantum_history")
+
+    def history_rows(self):
+        data = self.history.data
+        if data is not self._history_data:
+            old_rows = self._history_rows
+            first = int(self.history_scroll.y // 68)
+            anchor = old_rows[first]["request_id"] if first < len(old_rows) else None
+            offset = self.history_scroll.y % 68
+            focus = self.menu.focus - 1
+            selected = old_rows[focus]["request_id"] if 0 <= focus < len(old_rows) else None
+            refresh_focused = self._history_data is not None and self.menu.focus == len(old_rows) + 1
+            self._history_data = data
+            self._history_rows = data.get("runs", [])
+            self.history_scroll.resize((668, max(0, len(self._history_rows) * 68 - 8)))
+            # Keep the visible run in place when refresh inserts newer runs.
+            ids = [run["request_id"] for run in self._history_rows]
+            if anchor in ids:
+                self.history_scroll.y = ids.index(anchor) * 68 + offset
+                self.history_scroll.move()
+            if self.menu.page == "quantum_history":
+                if refresh_focused:
+                    self.menu.focus = len(self._history_rows) + 1
+                elif selected in ids:
+                    self.menu.focus = ids.index(selected) + 1
+                elif selected is not None:
+                    self.menu.focus = 0
+                self.menu.pressed = None
+        return self._history_rows
+
+    def history_entry(self, action):
+        key = action.removeprefix("quantum:history:")
+        return next((run for run in self.history_rows() if run["request_id"] == key), None)
+
+    def history_rect(self, index):
+        view = self.history_scroll
+        return pygame.Rect(view.rect.x, round(view.rect.y + index * 68 - view.y), view.rect.width, 56)
+
+    def reveal_history_focus(self):
+        if 1 <= self.menu.focus <= len(self.history_rows()):
+            rect = self.history_rect(self.menu.focus - 1)
+            view = self.history_scroll
+            if rect.top < view.rect.top:
+                view.move(dy=rect.top - view.rect.top)
+            elif rect.bottom > view.rect.bottom:
+                view.move(dy=rect.bottom - view.rect.bottom + 4)
 
     def outcomes(self):
         data = self.run.data
@@ -57,11 +107,32 @@ class QuantumMenu:
 
     def cancel_scroll_drag(self):
         self.result_scroll.drag = None
+        self.history_scroll.drag = None
         if self.circuit_view:
             self.circuit_view.scroll.drag = None
             self.circuit_view.pressed_gate = None
 
     def handle_event(self, event):
+        if self.menu.page == "quantum_history":
+            rows = self.history_rows()
+            if event.type == pygame.KEYDOWN:
+                forward = (pygame.K_TAB, pygame.K_DOWN, pygame.K_s, pygame.K_d, pygame.K_RIGHT)
+                backward = (pygame.K_UP, pygame.K_w, pygame.K_a, pygame.K_LEFT)
+                if event.key in forward + backward:
+                    backwards = event.key in backward or (event.key == pygame.K_TAB and getattr(event, "mod", 0) & pygame.KMOD_SHIFT)
+                    self.menu.focus = (self.menu.focus + (-1 if backwards else 1)) % (len(rows) + 2)
+                    self.reveal_history_focus()
+                    return True
+            if self.history_scroll.handle_event(event):
+                if event.type == pygame.KEYDOWN and rows:
+                    self.menu.focus = len(rows) if event.key == pygame.K_END else min(len(rows), int(self.history_scroll.y // 68) + 1)
+                    self.reveal_history_focus()
+                elif 1 <= self.menu.focus <= len(rows):
+                    # Wheel/drag can move the selected row out of view.
+                    if not self.history_scroll.rect.contains(self.history_rect(self.menu.focus - 1)):
+                        self.menu.focus = min(len(rows), int((self.history_scroll.y + 67) // 68) + 1)
+                return True
+            return False
         if self.menu.page == "quantum_circuit":
             return self.circuit_view.handle_event(event)
         if self.menu.page == "quantum" and self.run and self.run.data["state"] == "done":
@@ -73,15 +144,12 @@ class QuantumMenu:
         page = self.menu.page
         result = [("back", pygame.Rect(60, 499, 160, 42), "Back", "")]
         if page == "quantum_history":
-            runs = self.history.data.get("runs", [])
-            for i, run in enumerate(runs[self.history_offset:self.history_offset + 4]):
+            for i, run in enumerate(self.history_rows()):
                 label = f"Level {run['level']:02}  /  {run.get('backend', 'Quantum Inspire')}"
-                result.append((f"quantum:history:{self.history_offset+i}", pygame.Rect(60, 195+i*68, 680, 56), label,
+                result.append((f"quantum:history:{run['request_id']}", self.history_rect(i), label,
                                run["state"].upper()))
-            if not self.history.busy:
-                result.append(("quantum:refresh_history", pygame.Rect(560, 499, 180, 42), "Refresh", ""))
-            if len(runs) > 4:
-                result.extend(self.paging("history", self.history_offset, len(runs), 4))
+            result.append(("quantum:refresh_history", pygame.Rect(560, 499, 180, 42),
+                           "Refreshing..." if self.history.busy else "Refresh", ""))
             return result
         if page == "quantum_map":
             return result + self.pillar_map.buttons()
@@ -94,7 +162,9 @@ class QuantumMenu:
         if not self.run.busy:
             if state == "ready":
                 result.append(("quantum:submit", pygame.Rect(456, 499, 284, 42), f"Run {data['shots']:,} shots", ""))
-            elif state in ("idle", "setup", "unavailable") and self.run.circuit:
+            elif state in ("unavailable", "setup") and data.get("retryable"):
+                result.append(("quantum:retry", pygame.Rect(456, 499, 284, 42), "Retry", ""))
+            elif state in ("idle", "setup", "unavailable") and "operations" in (self.run.circuit or {}):
                 result.append(("quantum:prepare", pygame.Rect(456, 499, 284, 42), "Check hardware", ""))
             elif state in ("uncertain", "submitting", "queued", "running"):
                 result.append(("quantum:status", pygame.Rect(456, 499, 284, 42), "Check status", ""))
@@ -102,16 +172,6 @@ class QuantumMenu:
             if "operations" in (self.run.circuit or {}) or data.get("diagram"):
                 result.append(("quantum:circuit", pygame.Rect(364, 499, 180, 42), "View circuit", ""))
             result.append(("quantum:map", pygame.Rect(560, 499, 180, 42), "Pillar map", ""))
-        return result
-
-    @staticmethod
-    def paging(kind, offset, total, size):
-        result = []
-        left, right = 236, 386
-        if offset:
-            result.append(("quantum:" + kind + ":prev", pygame.Rect(left, 499, 136, 42), "Previous", ""))
-        if offset + size < total:
-            result.append(("quantum:" + kind + ":next", pygame.Rect(right, 499, 136, 42), "Next", ""))
         return result
 
     def activate(self, action):
@@ -128,8 +188,10 @@ class QuantumMenu:
             self.open_history()
         elif action == "quantum:refresh_history":
             self.history.command("history")
-        elif action.startswith("quantum:history:") and action.split(":")[-1].isdigit():
-            entry = self.history.data["runs"][int(action.split(":")[-1])]
+        elif action.startswith("quantum:history:"):
+            entry = self.history_entry(action)
+            if entry is None:
+                return
             self.run = QuantumRun({"labels": entry["labels"], "level": entry["level"]})
             self.run.request_id = entry["request_id"]
             self.run.data = {**entry, "state": "queued", "message": "Loading saved run..."}
@@ -151,10 +213,7 @@ class QuantumMenu:
                 self.menu.game.quantum_run = self.run
             self.result_scroll.y = 0
             self.run.open()
-        elif action in ("quantum:history:next", "quantum:history:prev"):
-            step = 1 if action.endswith("next") else -1
-            self.history_offset += step * 4
-        elif action in ("quantum:submit", "quantum:prepare", "quantum:status"):
+        elif action in ("quantum:submit", "quantum:prepare", "quantum:status", "quantum:retry"):
             self.run.command(action.split(":")[-1])
 
     def back(self):
@@ -166,6 +225,8 @@ class QuantumMenu:
         elif page == "quantum_history":
             self.menu.open(self.history_return)
         else:
+            if self.return_page == "quantum_history" and self.history is not None:
+                self.history.command("history")
             self.menu.open(self.return_page)
 
     def wrap(self, value, x, y, width=630, size=22, color=None):
@@ -192,10 +253,14 @@ class QuantumMenu:
         if menu.page == "quantum_history":
             menu.text("Hardware runs", 60, 112, 43)
             menu.text("Your recent runs on this computer.", 62, 161, 22, MUTED)
-            if self.history.busy:
-                menu.text("Loading runs...", 80, 242, 27, ACCENT)
-            elif not self.history.data.get("runs"):
+            rows = self.history_rows()
+            if not rows and not self.history.busy:
                 self.wrap(self.history.data.get("message") or "No hardware runs yet. Complete a level to send its circuit.", 80, 242)
+            self.history_scroll.draw(screen)
+            footer = "SCROLL  Browse runs    /    ESC  Back" if self.history_scroll.max_y else "ESC  Back"
+            if rows and self.history.data.get("message") and not self.history.busy:
+                footer = "Could not refresh runs. Try Refresh again."
+            menu.text(footer, 60, 571, 18, MUTED)
             return
         run, data = self.run, self.run.data
         labels = data.get("labels", (run.circuit or {}).get("labels", []))
@@ -265,6 +330,8 @@ class QuantumMenu:
             menu.text("python -m pip install -r requirements-quantum.txt", 80, max(349, y+41), 21, ACCENT)
             menu.text("qi login", 80, max(376, y+68), 21, ACCENT)
             menu.text("Browser: python -m scripts.quantum_server", 80, max(416, y+108), 21, MUTED)
+        elif state == "unavailable" and data.get("retryable"):
+            self.wrap("Retry checks available hardware and sends this saved circuit when a compatible processor is available.", 80, max(372, y+18), size=21)
         elif state == "ready":
             menu.text(f"{data['backend']}  /  {data['shots']:,} shots  /  depth {data['depth']}", 80, 333, 25, MINT)
             self.wrap("A shot runs your circuit once and measures the pillars. Hardware noise and 5-degree rotation rounding may change the results.", 80, 378, size=21)

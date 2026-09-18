@@ -118,10 +118,14 @@ class QuantumRun:
             return
         if action == "submit" and self.data["state"] != "ready":
             return
+        if action == "enqueue" and self.data["state"] != "idle":
+            return
+        if action == "retry" and (self.data["state"] not in ("unavailable", "setup") or not self.data.get("retryable")):
+            return
         self.busy = True
         self.started = time.monotonic()
         payload = {"action": action, "request_id": self.request_id}
-        if action == "prepare":
+        if action in ("prepare", "enqueue"):
             payload["circuit"] = self.circuit
         if sys.platform == "emscripten" and self.transport is None:
             asyncio.create_task(self._browser_command(payload))
@@ -137,7 +141,7 @@ class QuantumRun:
             self._reply = self.transport(payload)
         except Exception:
             self._reply = {**self.data, "message": "Connection interrupted. Check status before trying again.",
-                           "state": "uncertain" if payload["action"] == "submit" else self.data["state"]}
+                           "state": "uncertain" if payload["action"] in ("submit", "enqueue", "retry") else self.data["state"]}
 
     async def _browser_command(self, payload):
         try:
@@ -152,7 +156,7 @@ class QuantumRun:
             else:
                 self._reply = await response.json()
         except Exception:
-            self._reply = {**self.data, "state": "uncertain" if payload["action"] == "submit" else self.data["state"],
+            self._reply = {**self.data, "state": "uncertain" if payload["action"] in ("submit", "enqueue", "retry") else self.data["state"],
                            "message": "Connection interrupted. Check status to reconnect to this run."}
 
     def update(self):
