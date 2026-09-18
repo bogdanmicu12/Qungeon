@@ -20,7 +20,7 @@ resizeCanvas();
 
 canvas.addEventListener("pointerdown", () => canvas.focus());
 canvas.addEventListener("keydown", (event) => {
-  if (["Tab", " ", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(event.key)) {
+  if (["Tab", " ", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "PageUp", "PageDown", "Home", "End"].includes(event.key)) {
     event.preventDefault();
   }
 });
