@@ -6,19 +6,22 @@ from scripts.game_objects import (
     gate_info_image,
     control_gates,
 )
-from scripts.common_functions import add_text, set_dragging
+from scripts.common_functions import set_dragging
 
 class ItemSlot(pygame.sprite.Sprite):
     """Represents a slot for an item in the hotbar."""
     def __init__(self, x, y, count, item_name):
         super().__init__()
         self.image = pygame.Surface([50, 50], pygame.SRCALPHA)
-        pygame.draw.rect(self.image, (150, 150, 150), pygame.Rect(1, 1, 47, 47))
-        pygame.draw.rect(self.image, (100, 100, 100), self.image.get_rect(), 2, 3)
+        slot_color = (39, 47, 58)
+        accent_color = (229, 166, 64) if item_name in control_gates else (83, 190, 121)
+        pygame.draw.rect(self.image, slot_color, pygame.Rect(1, 1, 47, 47), border_radius=4)
+        pygame.draw.rect(self.image, accent_color, self.image.get_rect(), 2, 4)
+        pygame.draw.line(self.image, (76, 87, 101), (7, 8), (42, 8), 1)
         self.rect = self.image.get_rect()
         self.rect.x = x
         self.rect.y = y
-        self.original_image = self.image
+        self.original_image = self.image.copy()
         self.name = item_name
         self.info = GATE_INFO.get(item_name, {"label": item_name, "description": "Quantum gate."})
 
@@ -105,9 +108,16 @@ class Hotbar:
         self.sprites = pygame.sprite.Group()
     
     def change_item_text(self, slot, item, count=0):
-        add_text(slot, item)
+        slot.image = slot.original_image.copy()
+        label_font = pygame.font.Font('./assets/DejaVuSans.ttf', 15)
+        count_font = pygame.font.Font('./assets/DejaVuSans.ttf', 11)
+        label = label_font.render(item, True, (244, 247, 240))
+        label_x = (slot.image.get_width() - label.get_width()) // 2
+        slot.image.blit(label, (label_x, 14))
         if count:
-            add_text(slot, f'x{count}', 0, 30)
+            count_text = count_font.render(f'x{count}', True, (218, 226, 219))
+            count_x = slot.image.get_width() - count_text.get_width() - 5
+            slot.image.blit(count_text, (count_x, 34))
 
     def add_item(self, item, count):
         if item in self.slots:
