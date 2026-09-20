@@ -1,5 +1,11 @@
 import pygame
-from scripts.game_objects import QuantumObject, gates, gate_info_image, control_gates
+from scripts.game_objects import (
+    GATE_INFO,
+    QuantumObject,
+    gates,
+    gate_info_image,
+    control_gates,
+)
 from scripts.common_functions import add_text, set_dragging
 
 class ItemSlot(pygame.sprite.Sprite):
@@ -14,6 +20,7 @@ class ItemSlot(pygame.sprite.Sprite):
         self.rect.y = y
         self.original_image = self.image
         self.name = item_name
+        self.info = GATE_INFO.get(item_name, {"label": item_name, "description": "Quantum gate."})
 
         self.count = count
         self.effect = gates.get(item_name)
@@ -28,16 +35,40 @@ class ItemSlot(pygame.sprite.Sprite):
             rect = info_image.get_rect()
             hover_width = int(rect.width * 0.5)
             hover_height = int(rect.height * 0.5)
-            background_width = hover_width + 20
-            background_height = hover_height + 20
+            padding_x = 16
+            padding_y = 14
+            background_width = max(180, hover_width + (padding_x * 2))
+            background_height = hover_height + 82
 
             self.hover_image = pygame.Surface((background_width, background_height), pygame.SRCALPHA)
-            pygame.draw.rect(self.hover_image, (150, 150, 150), pygame.Rect(1, 1, background_width - 2, background_height - 2))
-            pygame.draw.rect(self.hover_image, (100, 100, 100), pygame.Rect(0, 0, background_width, background_height), 2, 3)
+            self.hover_image.fill((30, 30, 32, 255))
+            pygame.draw.rect(self.hover_image, (30, 30, 32, 255), pygame.Rect(1, 1, background_width - 2, background_height - 2))
+            pygame.draw.rect(self.hover_image, (170, 170, 190, 255), pygame.Rect(0, 0, background_width, background_height), 2, 3)
 
             scaled_image = pygame.transform.scale(info_image, (hover_width, hover_height))
-            hover_image_pos = ((background_width - hover_width) // 2, (background_height - hover_height) // 2)
+            hover_image_pos = ((background_width - hover_width) // 2, padding_y)
             self.hover_image.blit(scaled_image, hover_image_pos)
+
+            label = pygame.font.Font('./assets/DejaVuSans.ttf', 18).render(self.info["label"], True, (255, 255, 255))
+            self.hover_image.blit(label, (padding_x, hover_height + padding_y + 8))
+
+            description = self.info["description"]
+            words = description.split()
+            lines = []
+            current = ""
+            for word in words:
+                candidate = f"{current} {word}".strip()
+                if len(candidate) <= 24:
+                    current = candidate
+                else:
+                    if current:
+                        lines.append(current)
+                    current = word
+            if current:
+                lines.append(current)
+            for index, line in enumerate(lines[:2]):
+                text = pygame.font.Font('./assets/DejaVuSans.ttf', 11).render(line, True, (220, 220, 220))
+                self.hover_image.blit(text, (padding_x, hover_height + padding_y + 30 + index * 14))
 
             self.hover_image_rect = self.hover_image.get_rect()
 
@@ -45,7 +76,7 @@ class ItemSlot(pygame.sprite.Sprite):
         """Draws the hover image at the mouse position if the slot is not being dragged."""
         if not self.dragging:
             mouse_x, mouse_y = pygame.mouse.get_pos()
-            self.hover_image_rect.topleft = (mouse_x, mouse_y - 45)
+            self.hover_image_rect.topleft = (mouse_x - 18, mouse_y - self.hover_image.get_height() - 12)
             screen.blit(self.hover_image, self.hover_image_rect)
 
 class Hotbar:

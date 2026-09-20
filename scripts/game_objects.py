@@ -29,6 +29,33 @@ gate_info_image = {
 
 control_gates = ['CNOT', 'CHAD']
 
+GATE_INFO = {
+    'X': {
+        'label': 'X gate',
+        'description': 'Flips a pillar between |0> and |1>.'
+    },
+    'H': {
+        'label': 'H gate',
+        'description': 'Creates an equal superposition between |0> and |1>.'
+    },
+    'Z': {
+        'label': 'Z gate',
+        'description': 'Applies a phase flip without changing the pillar probabilities.'
+    },
+    'RotY': {
+        'label': 'RotY gate',
+        'description': 'Rotates the pillar state around the Y axis to mix 0 and 1.'
+    },
+    'CNOT': {
+        'label': 'CNOT gate',
+        'description': 'Flips the target pillar only when the control pillar is |1>.'
+    },
+    'CHAD': {
+        'label': 'CHAD gate',
+        'description': 'Applies a controlled H operation to the target pillar.'
+    },
+}
+
 # Load game object images
 tile_image = pygame.image.load('./assets/tile.png')
 end_tile_image = pygame.image.load('./assets/end_tile.png')
