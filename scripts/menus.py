@@ -427,11 +427,10 @@ class MenuUI:
     def draw_hud(self):
         self.draw_header()
         if pygame.time.get_ticks() < self.game.quantum_notice_until:
-            self.text(self.game.quantum_notice, 40, 89, 18, ACCENT)
+            self.text(self.game.quantum_notice, 40, 89, 18, self.game.quantum_notice_color)
         self.text(f"LEVEL {self.game.current_level:02}", 362, 39, 22, INK)
         pygame.draw.rect(self.game.screen, PANEL, (652, 29, 108, 35))
         pygame.draw.rect(self.game.screen, EDGE, (652, 29, 108, 35), 1)
         self.text("ESC  Pause", 665, 39, 20, MUTED)
         self.text("WASD  Move", 40, 579, 18, MUTED)
-        self.text("Drag gates onto nearby pillars", 400, 579, 18, MUTED, True)
         self.text("R  Restart", 692, 579, 18, MUTED)
