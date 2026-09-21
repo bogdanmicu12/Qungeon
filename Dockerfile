@@ -1,15 +1,11 @@
-FROM python:3.13-slim
+FROM busybox:1.37.0
 
-WORKDIR /app
-
-COPY requirements.txt .
-
-RUN apt-get update && apt-get install -y --no-install-recommends git && rm -rf /var/lib/apt/lists/*
-
-RUN pip install --no-cache-dir -r requirements.txt
-
-COPY . .
+COPY assets/ /srv/assets/
+COPY levels/ /srv/levels/
+COPY scripts/ /srv/scripts/
+COPY web/ /srv/web/
+COPY index.html Qungeon.py /srv/
 
 EXPOSE 8000
 
-CMD ["python", "-m", "http.server", "8000"]
+CMD ["httpd", "-f", "-p", "8000", "-h", "/srv"]

@@ -10,3 +10,14 @@ QungeonEnv313
 .venv
 __pycache__
 .pytest_cache
+build
+src
+tests
+README.md
+LICENSE
+docker-compose.yml
+requirements*.txt
+assets/screenshot.png
+assets/DejaVu-LICENSE.txt
+scripts/quantum_server.py
+scripts/quantum_service.py
