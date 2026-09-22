@@ -24,8 +24,24 @@ except Exception as exc:  # pragma: no cover - environment without deps
     sys.exit(0)
 
 
+def start(level):
+    """A game already standing in `level`.
+
+    Entering a level is deferred now - the quantum stack is imported on demand,
+    behind a loading screen - so a `start_direct` game only reaches the level
+    once the frame loop has run, and constructing one is not enough.
+    """
+    g = Game(argparse.Namespace(level=level, start_direct=True))
+    for _ in range(3):
+        if g.menu.page == "playing":
+            break
+        g.run_frame()
+    assert g.menu.page == "playing", g.menu.page
+    return g
+
+
 def test_pure_zero_is_passable():
-    g = Game(argparse.Namespace(level=1))
+    g = start(1)
     pillar = g.objects["5,4"]        # starts |1> (Flip in level 1)
     pillar.apply_effect(g, gates["X"])  # -> |0>
     assert pillar.function(g, 5, 4) is True
@@ -34,7 +50,7 @@ def test_pure_zero_is_passable():
 def test_level2_is_solvable():
     """Two-qubit worlds round to ~0.9999999 in cirq's complex64 sim, so a
     tolerance tighter than that makes every multi-pillar level unwinnable."""
-    g = Game(argparse.Namespace(level=2))
+    g = start(2)
     superposed, flipped = g.objects["5,4"], g.objects["6,4"]
     superposed.apply_effect(g, gates["H"])  # H . H -> |0>
     flipped.apply_effect(g, gates["X"])     # X . X -> |0>
@@ -43,7 +59,7 @@ def test_level2_is_solvable():
 
 
 def test_roty_never_flips_passability_without_state_change():
-    g = Game(argparse.Namespace(level=1))
+    g = start(1)
     pillar = g.objects["5,4"]
     pillar.apply_effect(g, gates["RotY"])  # ~2/3 : 1/3, not pure |0>
     results = [pillar.function(g, 5, 4) for _ in range(25)]

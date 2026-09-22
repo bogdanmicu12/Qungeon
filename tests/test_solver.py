@@ -300,3 +300,20 @@ def test_is_solvable_reads_the_live_game(game):
     assert level_solver.is_solvable(game) is True
     game.hotbar.remove_by_key("X")            # level 1's only gate
     assert level_solver.is_solvable(game) is False
+
+
+def test_equivalent_states_hash_together_despite_negative_zero():
+    """Rounding can leave -0.0, whose bytes differ from +0.0.
+
+    Two vectors that compare equal must share a cache key, or the search
+    re-explores the same state and can burn its budget into a false "unknown".
+    """
+    import numpy as np
+
+    # The tiny amplitude is below _PHASE_EPS, so it is not the phase reference
+    # and survives normalisation to be rounded away - to -0.0 in one case.
+    rounds_to_negative_zero = np.array([1 + 0j, -1e-12j], dtype=np.complex128)
+    rounds_to_positive_zero = np.array([1 + 0j, +1e-12j], dtype=np.complex128)
+
+    assert (level_solver._canonical_vector(rounds_to_negative_zero)
+            == level_solver._canonical_vector(rounds_to_positive_zero))
