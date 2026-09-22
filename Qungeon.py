@@ -5,12 +5,14 @@ import argparse
 
 from pygame.locals import (
     KEYDOWN, MOUSEBUTTONDOWN, MOUSEBUTTONUP, QUIT,
-    K_ESCAPE, K_a, K_d, K_q, K_r, K_s, K_w,
+    K_ESCAPE, K_a, K_d, K_h, K_q, K_r, K_s, K_w, K_1, K_2, K_3, K_4, K_5, K_6, K_7, K_8, K_9,
 )
 from scripts.grouping_system import GroupingSystem
-from scripts.common_functions import handle_slot_mouse_down, hover, update_mouse_drag
+from scripts.common_functions import update_mouse_drag
 from scripts.level_validation import read_level, parse_pos, LevelError
-from scripts.menus import MenuUI, BG, load_settings, normalize_settings, save_settings
+from scripts.menus import ACCENT, MenuUI, BG, load_settings, normalize_settings, save_settings
+# quantum_run keeps cirq behind function-level imports, so it is safe up here.
+from scripts.quantum_run import QuantumRun, capture_circuit
 
 
 # Bound by load_gameplay(). Everything that reaches cirq - the quantum stack
@@ -90,6 +92,12 @@ class Game:
         self.resources = None
         self.hop = None
         self.current_level = args.level
+        self.quantum_run = None
+        self.background_quantum_runs = []
+        self.quantum_notice = ""
+        self.quantum_notice_color = ACCENT
+        self.quantum_notice_until = 0
+        self.gate_help_open = False
         self.player = None
         self.hotbar = None
         pygame.display.set_caption(GAME_TITLE)
@@ -174,12 +182,15 @@ class Game:
 
     def clean_up(self):
         """Resets and clears all game objects, tiles, and hotbar slots when loading a new level."""
+        self.clear_quantum_notice()
+        self.gate_help_open = False
         self.tiles.clear()
         self.tile_sprites.empty()
         self.objects.clear()
         self.object_sprites.empty()
         self.hotbar.slots.clear()
         self.hotbar.sprites.empty()
+        self.hotbar.selected_key = None
         self.quantum_grid.clear()
         self.grouping_system.groups.clear()
         self.grouping_system.count = 0
@@ -233,18 +244,66 @@ class Game:
         if tile and tile.type == TileType.END:
             self.hop_animation(start_pos, end_pos)
         elif object_key in self.objects:
-            if self.objects[object_key].function(self, new_x, new_y):
+            obj = self.objects[object_key]
+            if isinstance(obj, QuantumObject) and self.hotbar.apply_selected(self, obj):
+                if obj.function(self, new_x, new_y):
+                    self.hop_animation(start_pos, end_pos)
+            elif obj.function(self, new_x, new_y):
                 self.hop_animation(start_pos, end_pos)
         elif tile and tile.type != TileType.WALL:
             self.hop_animation(start_pos, end_pos)
 
     def advance_level(self):
-        """Finish a single puzzle or advance through the full run without exiting."""
+        """Keep the solved circuit available before continuing a full run."""
+        self.stuck_elapsed = None
+        try:
+            self.quantum_run = QuantumRun(capture_circuit(self))
+        except ValueError as exc:
+            self.quantum_run = QuantumRun(error=str(exc))
+        skip_screen = self.run_mode == "full" and not self.settings["full_run_completion"]
+        if skip_screen and self.settings["auto_quantum_runs"]:
+            if self.quantum_run.circuit is not None:
+                self.background_quantum_runs.append(self.quantum_run)
+                self.quantum_run.command("enqueue")
+                self.show_quantum_notice(f"Level {self.current_level:02}: checking hardware and queueing your circuit...")
+            else:
+                self.show_quantum_notice(f"Level {self.current_level:02}: this circuit cannot run on hardware.")
+        # Opening completion first also leaves a recovery route if the next
+        # level file fails validation; loading it must never strand the player.
+        self.menu.open("complete")
+        if skip_screen and self.has_next_level():
+            self.next_level()
+
+    def show_quantum_notice(self, message, color=ACCENT, duration=8000):
+        self.quantum_notice = message
+        self.quantum_notice_color = color
+        self.quantum_notice_until = pygame.time.get_ticks() + duration
+
+    def clear_quantum_notice(self):
+        self.quantum_notice = ""
+        self.quantum_notice_until = 0
+
+    def update_background_quantum_runs(self):
+        for run in self.background_quantum_runs[:]:
+            previous = run.data["state"]
+            run.update()
+            state = run.data["state"]
+            if state != previous:
+                level = run.circuit["level"]
+                if state in ("queued", "running", "done"):
+                    self.show_quantum_notice(f"Level {level:02}: hardware run {state}. See Hardware runs in the menu.")
+                elif state in ("setup", "unavailable", "failed", "uncertain"):
+                    self.show_quantum_notice(f"Level {level:02}: hardware run needs attention. See Hardware runs in the menu.")
+            if not run.busy and state not in ("queued", "running", "submitting"):
+                self.background_quantum_runs.remove(run)
+
+    def next_level(self):
         index = self.available_levels.index(self.current_level)
         if self.run_mode == "full" and index + 1 < len(self.available_levels):
             self.start_level(self.available_levels[index + 1], "full")
-        else:
-            self.menu.open("complete")
+
+    def has_next_level(self):
+        return self.run_mode == "full" and self.current_level != self.available_levels[-1]
 
     def start_level(self, level, mode="single"):
         """Load a level and play it.
@@ -262,6 +321,7 @@ class Game:
             return
         self.current_level = level
         self.run_mode = mode
+        self.quantum_run = None
         self.menu.open("playing")
 
     def restart_level(self):
@@ -331,12 +391,16 @@ class Game:
         for sprite in all_sprites:
             self.screen.blit(sprite.image, sprite.rect)
 
-        self.hotbar.sprites.draw(self.screen)
+        self.hotbar.draw_selection_panel(self.screen)
+        for slot in self.hotbar.slots.values():
+            if slot.dragging:
+                self.screen.blit(slot.image, slot.rect)
         if interactive:
             if self.settings["entanglement_guides"]:
                 self.entanglement_visuals()
-            hover(self.hotbar.slots, self.screen)
         self.menu.draw_hud()
+        if self.gate_help_open:
+            self.hotbar.draw_help_window(self.screen)
 
         if update:
             pygame.display.update()
@@ -392,6 +456,10 @@ class Game:
         now = pygame.time.get_ticks()
         elapsed = min(now - self.last_tick, 100)
         self.last_tick = now
+        self.update_background_quantum_runs()
+        if self.quantum_run is not None and self.quantum_run not in self.background_quantum_runs:
+            self.quantum_run.update()
+        self.menu.quantum.update()
         was_playing = self.menu.page == "playing"
         # Before input, so a level choice held over from an earlier frame is
         # released while its loading screen is the thing on the display.
@@ -454,14 +522,18 @@ class Game:
             elif event.type == KEYDOWN:
                 self.handle_keydown(event)
             elif event.type == MOUSEBUTTONDOWN and event.button == 1:
-                if pygame.Rect(652, 29, 108, 35).collidepoint(event.pos):
+                if self.gate_help_open:
+                    close_rect = getattr(self.hotbar, "help_close_rect", None)
+                    if close_rect is not None and close_rect.collidepoint(event.pos):
+                        self.gate_help_open = False
+                elif pygame.Rect(652, 29, 108, 35).collidepoint(event.pos):
                     self.menu.open("paused")
                 else:
                     obj_effect = self.handle_object_dragging(event)
                     if obj_effect:
                         self.hotbar.remove_by_key(obj_effect)
                     else:
-                        handle_slot_mouse_down(self.hotbar.slots, event)
+                        self.hotbar.handle_selection_mouse_down(event)
             elif event.type == MOUSEBUTTONUP and event.button == 1:
                 self.hotbar.handle_mouse_up(self, event)
             if self.menu.page != previous_page:
@@ -470,7 +542,17 @@ class Game:
 
     def handle_keydown(self, event):
         """Handles keydown events for movement and other actions."""
-        if event.key in (K_ESCAPE, K_q):
+        if event.key == K_h:
+            self.gate_help_open = not self.gate_help_open
+            return
+        if self.gate_help_open:
+            if event.key == K_ESCAPE:
+                self.gate_help_open = False
+            return
+        number_keys = (K_1, K_2, K_3, K_4, K_5, K_6, K_7, K_8, K_9)
+        if event.key in number_keys:
+            self.hotbar.select_by_number(self, number_keys.index(event.key) + 1)
+        elif event.key in (K_ESCAPE, K_q):
             self.menu.open("paused")
         elif event.key in [K_w, K_s, K_a, K_d]:
             self.update_position(event.key)

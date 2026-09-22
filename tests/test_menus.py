@@ -48,11 +48,98 @@ def test_start_requires_setup_and_full_run_advances(game):
     click(game, "start")
     assert (game.menu.page, game.current_level, game.run_mode) == ("playing", 1, "full")
     game.advance_level()
+    assert (game.current_level, game.menu.page) == (1, "complete")
+    assert game.quantum_run.circuit["level"] == 1
+    click(game, "next_level")
     assert (game.current_level, game.menu.page) == (2, "playing")
     game.start_level(game.available_levels[-1], "full")
     game.advance_level()
     assert game.menu.page == "complete"
     assert game.running
+
+
+def test_full_run_settings_reveal_auto_queue_and_save_both_preferences(game):
+    saved = []
+    game.persist_settings = lambda settings: saved.append(dict(settings))
+    click(game, "setup")
+    assert "toggle:auto_quantum_runs" not in [b[0] for b in game.menu.buttons()]
+    click(game, "toggle:full_run_completion")
+    assert game.settings["full_run_completion"] is False
+    click(game, "toggle:auto_quantum_runs")
+    assert saved[-1]["auto_quantum_runs"] is True
+    rects = [rect for _, rect, *_ in game.menu.buttons()]
+    assert all(pygame.Rect(0, 0, 800, 552).contains(rect) for rect in rects)
+    assert not any(a.colliderect(b) for i, a in enumerate(rects) for b in rects[i+1:])
+    game.menu.draw()
+    click(game, "toggle:full_run_completion")
+    assert "toggle:auto_quantum_runs" not in [b[0] for b in game.menu.buttons()]
+    assert saved[-1]["full_run_completion"] is True
+
+
+def test_skipping_completion_advances_without_hardware_and_keeps_final_summary(game, monkeypatch):
+    from scripts.quantum_run import QuantumRun
+    monkeypatch.setattr(QuantumRun, "command", lambda *args: pytest.fail("Automatic hardware runs are off"))
+    game.settings["full_run_completion"] = False
+    game.start_level(1, "full")
+    game.advance_level()
+    assert (game.current_level, game.menu.page) == (2, "playing")
+    game.start_level(game.available_levels[-1], "full")
+    game.advance_level()
+    assert game.menu.page == "complete"
+    assert not game.background_quantum_runs
+
+
+@pytest.mark.parametrize("mode,show", [("single", False), ("single", True), ("full", True)])
+def test_auto_queue_setting_only_applies_to_full_runs_with_skipped_screens(game, monkeypatch, mode, show):
+    from scripts.quantum_run import QuantumRun
+    monkeypatch.setattr(QuantumRun, "command", lambda *args: pytest.fail("No automatic request should be sent"))
+    game.settings.update(full_run_completion=show, auto_quantum_runs=True)
+    game.start_level(1, mode)
+    game.advance_level()
+    assert (game.current_level, game.menu.page) == (1, "complete")
+
+
+def test_auto_queue_captures_each_level_before_advancing_and_processes_in_background(game, monkeypatch):
+    from scripts.quantum_run import QuantumRun
+    requests = []
+    def command(run, action):
+        requests.append((run, action))
+        run.busy = True
+    monkeypatch.setattr(QuantumRun, "command", command)
+    game.settings.update(full_run_completion=False, auto_quantum_runs=True)
+    game.start_level(1, "full")
+    game.advance_level()
+    first = requests[0][0]
+    assert requests[0][1] == "enqueue" and first.circuit["level"] == 1
+    assert first.circuit["labels"] == ["5,4"]
+    assert game.current_level == 2 and game.quantum_run is None
+    game.advance_level()
+    assert requests[1][0].circuit["level"] == 2
+    assert len(game.background_quantum_runs) == 2
+    # A response arriving after the next level loads is still processed.
+    first._reply = {"state": "queued"}
+    game.menu.open("paused")
+    game.run_frame()
+    assert first.data["state"] == "queued" and not first.busy
+    first._reply = {"state": "done"}
+    game.run_frame()
+    assert first not in game.background_quantum_runs
+    game.start_level(game.available_levels[-1], "full")
+    game.advance_level()
+    assert requests[-1][0].circuit["level"] == game.available_levels[-1]
+    assert game.menu.page == "complete"
+
+
+def test_skip_screen_survives_a_broken_next_level(game, monkeypatch):
+    from scripts.level_validation import LevelError
+    game.start_level(1, "full")
+    game.settings["full_run_completion"] = False
+    def broken(*args):
+        raise LevelError("Broken next level")
+    monkeypatch.setattr(game, "load_level", broken)
+    game.advance_level()
+    assert game.current_level == 1 and game.menu.page == "complete"
+    assert game.quantum_run.circuit["level"] == 1
 
 
 @pytest.mark.parametrize("level", range(1, 9))
