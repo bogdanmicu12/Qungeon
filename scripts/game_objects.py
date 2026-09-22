@@ -37,7 +37,7 @@ box_image = pygame.image.load('./assets/box.png')
 wall_tile_image = pygame.image.load('./assets/wall.png')
 x_gate_image = pygame.image.load('./assets/x-gate.png')
 
-SCALE_FACTOR = 4
+SCALE_FACTOR = 3
 BLOCK_SIZE = 16 * SCALE_FACTOR
 PEEK_COUNT = 1000
 # A pillar is walkable only when it is exactly |0>. We read that from the
