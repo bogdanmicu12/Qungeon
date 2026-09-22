@@ -343,7 +343,11 @@ class MenuUI:
                 }[self.page]
                 self.text(heading, 60, 112, 49)
                 self.text(subheading, 62, 164, 24, MUTED)
-                if self.page in ("settings", "setup"):
+
+                if self.page == "help":
+                    self.draw_help()
+
+                elif self.page in ("settings", "setup"):
                     self.text("Preferences saved automatically." if self.settings_saved else "Preferences apply this session; saving is unavailable.", 62, 463, 19, MUTED)
         for index, button in enumerate(self.buttons()):
             self.draw_button(button, index)
@@ -358,3 +362,76 @@ class MenuUI:
         self.text("WASD  Move", 40, 579, 18, MUTED)
         self.text("Drag gates onto nearby pillars", 400, 579, 18, MUTED, True)
         self.text("R  Restart", 692, 579, 18, MUTED)
+
+    def draw_panel(self, rect, title=None, border_color=EDGE):
+        screen = self.game.screen
+        pygame.draw.rect(screen, PANEL, rect)
+        pygame.draw.rect(screen, border_color, rect, 1)
+        if title:
+            pygame.draw.rect(screen, border_color, (rect.x, rect.y, rect.width, 24))
+            self.text(title, rect.x + 10, rect.y + 3, 16, BG if border_color == ACCENT else INK)
+
+    def draw_help(self):
+            screen = self.game.screen
+
+            # controls
+            p1 = pygame.Rect(60, 200, 325, 270)
+            self.draw_panel(p1, "OBJECTIVE & CONTROLS", ACCENT)
+            
+            self.text("Reach the staircase to win.", p1.x + 12, p1.y + 32, 17, INK)
+            self.text("Pillars block your path make them", p1.x + 12, p1.y + 52, 17, INK)
+            self.text("transparent (|0> state) to pass.", p1.x + 12, p1.y + 72, 17, INK)
+
+            pygame.draw.line(screen, EDGE, (p1.x + 10, p1.y + 98), (p1.right - 10, p1.y + 98))
+
+            controls = [
+                ("WASD / Arrows", "Move character"),
+                ("Walk over items", "Loot quantum gates"),
+                ("Drag & Drop", "Apply gates to pillars"),
+                ("Control -> Target", "Apply CNOT gate"),
+                ("Key R", "Restart current level")
+            ]
+            for i, (how, what) in enumerate(controls):
+                cy = p1.y + 108 + i * 30
+                pygame.draw.rect(screen, (17, 19, 30), (p1.x + 12, cy, 118, 22))
+                pygame.draw.rect(screen, EDGE, (p1.x + 12, cy, 118, 22), 1)
+                self.text(how, p1.x + 16, cy + 3, 15, ACCENT)
+                self.text(what, p1.x + 138, cy + 3, 16, INK)
+
+            # Pillar states
+            p2 = pygame.Rect(400, 200, 340, 130)
+            self.draw_panel(p2, "PILLAR STATES")
+
+            states = [
+                ((161, 220, 189, 100), "|0>", "Passable (Transparent)", MINT),
+                ((100, 149, 237), "|1>", "Blocked (Solid Blue)", INK),
+                ((182, 164, 242), "Super", "Equal superposition (|0> + |1>)", MUTED),
+                ((149, 233, 178), "Phase", "Inverted Z-phase state", MUTED),
+            ]
+            for i, (color, code, desc, tcolor) in enumerate(states):
+                sy = p2.y + 30 + i * 24
+                # State color indicator badge
+                badge_surf = pygame.Surface((38, 18), pygame.SRCALPHA)
+                badge_surf.fill(color)
+                screen.blit(badge_surf, (p2.x + 12, sy))
+                pygame.draw.rect(screen, EDGE, (p2.x + 12, sy, 38, 18), 1)
+                
+                self.text(code, p2.x + 16, sy + 1, 14, BG if len(color) == 3 and sum(color) > 400 else INK)
+                self.text(desc, p2.x + 58, sy + 1, 16, tcolor)
+
+            # Gates
+            p3 = pygame.Rect(400, 340, 340, 130)
+            self.draw_panel(p3, "QUANTUM GATES")
+
+            gates = [
+                ("X-Gate", "Flips bit (0 <-> 1)"),
+                ("H-Gate", "Creates / undos superposition"),
+                ("Z-Gate", "Switches state phase"),
+                ("Rot-Y", "Rotates state around Y-axis"),
+                ("CNOT", "Flips target if control is |1>")
+            ]
+            for i, (gate, desc) in enumerate(gates):
+                gy = p3.y + 28 + i * 19
+                self.text(f"• {gate}:", p3.x + 12, gy, 16, ACCENT)
+                self.text(desc, p3.x + 88, gy, 15, INK)
+                
