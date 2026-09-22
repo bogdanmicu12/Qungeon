@@ -1,0 +1,8 @@
+# Runtime dependencies for Qungeon.
+#
+# The previous lockfile was generated on Python 3.8 and pinned old scientific
+# packages that do not ship Windows wheels for newer Python releases.
+pygame>=2.6,<3
+# This unitary commit still imports scipy.linalg.kron in some modules.
+scipy<1.17
+unitary @ git+https://github.com/quantumlib/unitary.git@32feeae5fdd9e553de0a76851af41f0d176d6608

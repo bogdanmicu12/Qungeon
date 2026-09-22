@@ -1,0 +1,16 @@
+{
+  "tiles": {
+    "(2, 4)": "START",
+    "(3, 4)": "EMPTY",
+    "(4, 4)": "EMPTY",
+    "(5, 4)": "EMPTY",
+    "(6, 4)": "EMPTY",
+    "(7, 4)": "END"
+  },
+  "objects": {},
+  "quantum_objects": [
+    "(4, 4)"
+  ],
+  "gates": {},
+  "effects": []
+}

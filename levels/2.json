@@ -1,0 +1,27 @@
+{
+  "tiles": {
+    "(3,4)": "START",
+    "(4,4)": "EMPTY",
+    "(7,4)": "END",
+    "(5,4)": "EMPTY",
+    "(6,4)": "EMPTY",
+    "(3,3)": "WALL",
+    "(4,3)": "WALL",
+    "(5,3)": "WALL",
+    "(6,3)": "WALL",
+    "(7,3)": "WALL"
+  },
+  "objects": {},
+  "quantum_objects": [
+    "(5,4)",
+    "(6,4)"
+  ],
+  "gates": {
+    "X": 1,
+    "H": 1
+  },
+  "effects": [
+    { "position": "(5,4)", "effect": "Superposition" },
+    { "position": "(6,4)", "effect": "Flip" }
+  ]
+}

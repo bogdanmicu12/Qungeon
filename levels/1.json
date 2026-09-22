@@ -1,0 +1,37 @@
+{
+  "tiles": {
+    "(2, 3)": "WALL",
+    "(2, 4)": "START",
+    "(3, 3)": "WALL",
+    "(3, 4)": "EMPTY",
+    "(3, 5)": "EMPTY",
+    "(3, 6)": "EMPTY",
+    "(3, 7)": "EMPTY",
+    "(4, 3)": "WALL",
+    "(4, 4)": "EMPTY",
+    "(4, 7)": "EMPTY",
+    "(5, 3)": "WALL",
+    "(5, 4)": "EMPTY",
+    "(5, 7)": "END"
+  },
+  "objects": {
+    "(5, 4)": "SWAP"
+  },
+  "quantum_objects": [
+    "(3, 4)",
+    "(3, 6)"
+  ],
+  "gates": {
+    "X": 1
+  },
+  "effects": [
+    {
+      "position": "(3, 4)",
+      "effect": "Flip"
+    },
+    {
+      "position": "(3, 6)",
+      "effect": "Flip"
+    }
+  ]
+}
