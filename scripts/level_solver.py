@@ -46,7 +46,9 @@ The rules are read from the game rather than restated wherever possible:
   level file, its initial effects and any gates already spent are all accounted
   for without replaying them.
 
-The one rule that must be mirrored is `CONTROL_EFFECTS` below - see its comment.
+The rules that must be mirrored are `CONTROL_EFFECTS` below - see its comment -
+and SWAP (`_apply_swap`, mirroring `Game.swap_pillars`), the one hotbar gate
+that acts on two pillars without being a controlled single-qubit gate.
 
 Typical use::
 
@@ -133,6 +135,11 @@ def gate_unitary(name):
             f"gate {name!r} has no effect the solver can simulate"
         )
 
+    return effect_unitary(effect)
+
+
+def effect_unitary(effect):
+    """The 2x2 matrix a single-qubit `QuantumEffect` applies."""
     circuit = cirq.Circuit(effect.effect(_EffectTarget()))
     return np.asarray(
         cirq.unitary(circuit),
@@ -265,45 +272,35 @@ def _merge(first, second):
     )
 
 
+def _relabel(block, old, new):
+    """The same block state with pillar `old` renamed to `new`."""
+    return _sort_block(
+        tuple(new if qubit == old else qubit for qubit in block.qubits),
+        block.vector,
+    )
+
+
 def _apply_swap(state, first, second):
     """Return blocks after exchanging the quantum states of two pillars.
 
-    This mirrors Game.handle_object_dragging: SWAP changes the two qubit
-    states but does not create an entanglement group by itself.
+    Mirrors Game.swap_pillars: SWAP creates no entanglement, so blocks are
+    never merged.
 
-    If the pillars are in different blocks, they are first combined. A SWAP
-    inside a joint block is implemented by exchanging the corresponding tensor
-    axes, which is also correct for entangled states.
+    Across two blocks, each pillar simply takes the other's place in its
+    block. Inside one block, SWAP exchanges the two tensor axes, which is also
+    correct for entangled states.
     """
     first_block = state.block_of(first)
     second_block = state.block_of(second)
 
-    # Different independent blocks.
     if first_block is not second_block:
-        merged = _merge(first_block, second_block)
-
-        first_axis = merged.index(first)
-        second_axis = merged.index(second)
-
-        tensor = merged.vector.reshape(
-            (2,) * len(merged.qubits)
-        )
-
-        tensor = np.swapaxes(
-            tensor,
-            first_axis,
-            second_axis
-        )
-
-        swapped = Block(
-            merged.qubits,
-            np.ascontiguousarray(tensor).reshape(-1)
-        )
-
         return _replace_blocks(
             state.blocks,
             [first_block, second_block],
-            [swapped],
+            [
+                _relabel(first_block, first, second),
+                _relabel(second_block, second, first),
+            ],
         )
 
     # Same entangled block.
@@ -769,9 +766,13 @@ def _canonical_vector(vector):
             np.abs(reference) / reference
         )
 
-    return np.round(
-        vector,
-        _HASH_DECIMALS,
+    # Adding 0.0 turns -0.0 into 0.0, which would otherwise hash differently.
+    return (
+        np.round(
+            vector,
+            _HASH_DECIMALS,
+        )
+        + 0.0
     ).tobytes()
 
 
@@ -811,6 +812,50 @@ def _take_loot(state, position, name):
     )
 
 
+def _apply_unitary(state, pillar, target, unitary):
+    """Blocks after applying `unitary` to `pillar`, or controlled by it on `target`."""
+    block = state.block_of(pillar)
+
+    if target is None:
+        return _replace_blocks(
+            state.blocks,
+            [block],
+            [
+                _apply_single(
+                    block,
+                    pillar,
+                    unitary,
+                )
+            ],
+        )
+
+    target_block = state.block_of(target)
+
+    if target_block is block:
+        merged, removed = block, [block]
+    else:
+        merged, removed = (
+            _merge(
+                block,
+                target_block,
+            ),
+            [block, target_block],
+        )
+
+    applied = _apply_controlled(
+        merged,
+        pillar,
+        target,
+        unitary,
+    )
+
+    return _replace_blocks(
+        state.blocks,
+        removed,
+        _split(applied),
+    )
+
+
 def _apply_gate(state, name, pillar, target):
     """State after spending `name` on `pillar`.
 
@@ -825,58 +870,12 @@ def _apply_gate(state, name, pillar, target):
             pillar,
             target,
         )
-
-        return SolverState(
-            board=state.board,
-            player=state.player,
-            inventory=_spend(
-                state.inventory,
-                name,
-            ),
-            loot=state.loot,
-            blocks=new_blocks,
-        )
-
-    unitary = gate_unitary(name)
-    block = state.block_of(pillar)
-
-    if target is None:
-        new_blocks = _replace_blocks(
-            state.blocks,
-            [block],
-            [
-                _apply_single(
-                    block,
-                    pillar,
-                    unitary,
-                )
-            ],
-        )
     else:
-        target_block = state.block_of(target)
-
-        if target_block is block:
-            merged, removed = block, [block]
-        else:
-            merged, removed = (
-                _merge(
-                    block,
-                    target_block,
-                ),
-                [block, target_block],
-            )
-
-        applied = _apply_controlled(
-            merged,
+        new_blocks = _apply_unitary(
+            state,
             pillar,
             target,
-            unitary,
-        )
-
-        new_blocks = _replace_blocks(
-            state.blocks,
-            removed,
-            _split(applied),
+            gate_unitary(name),
         )
 
     return SolverState(
@@ -1089,81 +1088,28 @@ def state_from_level_data(level_data):
         blocks=blocks,
     )
 
+    # Same order and effect lookup as Game.load_level. Level effects are
+    # single-qubit alpha effects, optionally controlled by `position` onto
+    # `target`; SWAP is a hotbar gate, never a level effect.
     for entry in level_data["effects"]:
         source = _parse_level_pos(entry["position"])
-        effect_name = entry["effect"]
-
-        if effect_name == "SWAP":
-            target = _parse_level_pos(entry["target"])
-
-            state = SolverState(
-                board=state.board,
-                player=state.player,
-                inventory=state.inventory,
-                loot=state.loot,
-                blocks=_apply_swap(
-                    state,
-                    source,
-                    target,
-                ),
-            )
-
-            continue
-
-        effect = gate_unitary(effect_name)
-        block = state.block_of(source)
-
-        if "target" in entry:
-            target = _parse_level_pos(entry["target"])
-            target_block = state.block_of(target)
-
-            if target_block is block:
-                merged, removed = block, [block]
-            else:
-                merged = _merge(
-                    block,
-                    target_block,
-                )
-                removed = [block, target_block]
-
-            controlled_effect = CONTROL_EFFECTS.get(effect_name)
-
-            if controlled_effect is None:
-                raise ValueError(
-                    f"effect {effect_name!r} cannot have a target"
-                )
-
-            applied = _apply_controlled(
-                merged,
-                source,
-                target,
-                gate_unitary(effect_name),
-            )
-
-            blocks = _replace_blocks(
-                state.blocks,
-                removed,
-                _split(applied),
-            )
-        else:
-            blocks = _replace_blocks(
-                state.blocks,
-                [block],
-                [
-                    _apply_single(
-                        block,
-                        source,
-                        effect,
-                    )
-                ],
-            )
+        target = (
+            _parse_level_pos(entry["target"])
+            if "target" in entry
+            else None
+        )
 
         state = SolverState(
             board=state.board,
             player=state.player,
             inventory=state.inventory,
             loot=state.loot,
-            blocks=blocks,
+            blocks=_apply_unitary(
+                state,
+                source,
+                target,
+                effect_unitary(getattr(alpha, entry["effect"])()),
+            ),
         )
 
     return state

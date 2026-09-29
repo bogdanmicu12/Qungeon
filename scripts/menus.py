@@ -8,6 +8,7 @@ import pygame
 from scripts.common_functions import font
 from scripts.level_validation import LevelError, parse_pos, read_level
 from scripts.quantum_menu import QuantumMenu
+from scripts.scroll_view import ScrollView
 
 
 BG = (17, 19, 30)
@@ -80,6 +81,7 @@ class MenuUI:
         self.previews = {}
         self.settings_saved = True
         self.quantum = QuantumMenu(self)
+        self.level_scroll = ScrollView((60, 207, 680, 276), (680, 0))
 
         self.images = {
             name: pygame.image.load(f"./assets/{name}.png")
@@ -142,6 +144,10 @@ class MenuUI:
 
     def open(self, page):
         self.quantum.cancel_scroll_drag()
+        self.level_scroll.drag = None
+
+        if page == "levels":
+            self.level_scroll.y = 0
 
         if self.page == "playing":
             self.game.cancel_dragging()
@@ -193,9 +199,9 @@ class MenuUI:
                     action,
                     pygame.Rect(
                         60,
-                        300 + index * 58,
+                        300 + index * 50,
                         326,
-                        46,
+                        42,
                     ),
                     label,
                     hint,
@@ -214,9 +220,9 @@ class MenuUI:
                     "quantum_history",
                     pygame.Rect(
                         482,
-                        532,
+                        500,
                         258,
-                        46,
+                        42,
                     ),
                     "Hardware runs",
                     "",
@@ -304,6 +310,10 @@ class MenuUI:
 
         if self.page == "levels":
             result = []
+            view = self.level_scroll
+            rows = -(-len(self.game.available_levels) // 4)
+
+            view.resize((view.rect.width, max(0, rows * 128 - 16 + 4)))
 
             for index, level in enumerate(
                 self.game.available_levels
@@ -313,7 +323,7 @@ class MenuUI:
                         f"level:{level}",
                         pygame.Rect(
                             60 + (index % 4) * 174,
-                            207 + (index // 4) * 128,
+                            round(view.rect.y + (index // 4) * 128 - view.y),
                             158,
                             112,
                         ),
@@ -478,6 +488,14 @@ class MenuUI:
             self.pressed = None
             return
 
+        if (
+            self.page == "levels"
+            and event.type != pygame.KEYDOWN
+            and self.level_scroll.handle_event(event)
+        ):
+            self.pressed = None
+            return
+
         buttons = self.buttons()
 
         if not buttons:
@@ -513,6 +531,7 @@ class MenuUI:
                 self.focus = (
                     self.focus + step
                 ) % len(buttons)
+                self.reveal_level_focus()
 
             elif event.key in (
                 pygame.K_UP,
@@ -523,6 +542,7 @@ class MenuUI:
                 self.focus = (
                     self.focus - 1
                 ) % len(buttons)
+                self.reveal_level_focus()
 
             elif event.key in (
                 pygame.K_RETURN,
@@ -583,16 +603,62 @@ class MenuUI:
 
             self.pressed = None
 
-    def button_hit_rect(self, action, rect):
+    def button_view(self, action):
+        """The scroll view a button lives in, or None for a fixed button."""
         if (
             self.page == "quantum_history"
             and action.startswith("quantum:history:")
         ):
-            return rect.clip(
-                self.quantum.history_scroll.rect
-            )
+            return self.quantum.history_scroll
 
-        return rect
+        if action.startswith("level:"):
+            return self.level_scroll
+
+        return None
+
+    def button_hit_rect(self, action, rect):
+        view = self.button_view(action)
+
+        return rect.clip(view.rect) if view else rect
+
+    def reveal_level_focus(self):
+        """Scroll the level grid so the focused card is fully visible."""
+        if self.page != "levels":
+            return
+
+        action, rect, _, _ = self.buttons()[self.focus]
+
+        if not action.startswith("level:"):
+            return
+
+        view = self.level_scroll
+
+        if rect.top < view.rect.top:
+            view.move(dy=rect.top - view.rect.top)
+        elif rect.bottom + 4 > view.rect.bottom:
+            view.move(dy=rect.bottom + 4 - view.rect.bottom)
+
+    def draw_buttons(self):
+        """Draw this page's buttons, clipping scrolled ones to their view."""
+        screen = self.game.screen
+
+        for index, button in enumerate(self.buttons()):
+            view = self.button_view(button[0])
+
+            if view is None:
+                self.draw_button(button, index)
+                continue
+
+            if not button[1].colliderect(view.rect):
+                continue
+
+            clip = screen.get_clip()
+            screen.set_clip(clip.clip(view.rect))
+            self.draw_button(button, index)
+            screen.set_clip(clip)
+
+        if self.page == "levels":
+            self.level_scroll.draw(screen)
 
     def draw_button(self, button, index):
         action, rect, label, hint = button
@@ -1139,41 +1205,12 @@ class MenuUI:
         ):
             self.quantum.draw()
 
-            buttons = self.buttons()
-
             self.focus = min(
                 self.focus,
-                len(buttons) - 1,
+                len(self.buttons()) - 1,
             )
 
-            for index, button in enumerate(
-                buttons
-            ):
-                clip = screen.get_clip()
-
-                if (
-                    self.page == "quantum_history"
-                    and button[0].startswith(
-                        "quantum:history:"
-                    )
-                ):
-                    if not button[1].colliderect(
-                        self.quantum.history_scroll.rect
-                    ):
-                        continue
-
-                    screen.set_clip(
-                        clip.clip(
-                            self.quantum.history_scroll.rect
-                        )
-                    )
-
-                self.draw_button(
-                    button,
-                    index,
-                )
-
-                screen.set_clip(clip)
+            self.draw_buttons()
 
             pygame.display.update()
             return
@@ -1424,13 +1461,7 @@ class MenuUI:
                         MUTED,
                     )
 
-        for index, button in enumerate(
-            self.buttons()
-        ):
-            self.draw_button(
-                button,
-                index,
-            )
+        self.draw_buttons()
 
         pygame.display.update()
 

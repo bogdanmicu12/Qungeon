@@ -16,12 +16,14 @@ Run with the project environment:
     SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy python -m pytest tests/test_solver.py -q
 """
 
+import json
 import os
 from types import SimpleNamespace
 
 os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
 os.environ.setdefault("SDL_AUDIODRIVER", "dummy")
 
+import numpy as np
 import pygame
 import pytest
 
@@ -86,7 +88,9 @@ def replay(game, plan):
         _, name, pillar, target = action
         obj = game.objects[key_of(pillar)]
 
-        if name in control_gates:
+        if name == "SWAP":
+            game.swap_pillars(obj, game.objects[key_of(target)])
+        elif name in control_gates:
             obj.apply_effect(
                 game,
                 [level_solver.CONTROL_EFFECTS[name], target],
@@ -95,6 +99,24 @@ def replay(game, plan):
             obj.apply_effect(game, gates[name])
 
         game.hotbar.remove_by_key(name)
+
+
+def assert_same_state(first, second):
+    """Same inventory, loot and blocks, with amplitudes equal up to global phase.
+
+    The game simulates in single precision and the solver in double, so block
+    vectors are compared by fidelity rather than byte for byte.
+    """
+    assert first.inventory == second.inventory
+    assert first.loot == second.loot
+
+    blocks = {block.qubits: block.vector for block in second.blocks}
+
+    assert sorted(block.qubits for block in first.blocks) == sorted(blocks)
+
+    for block in first.blocks:
+        overlap = abs(np.vdot(block.vector, blocks[block.qubits]))
+        assert overlap == pytest.approx(1.0, abs=1e-6), block.qubits
 
 
 def walk_to_end(game):
@@ -288,6 +310,103 @@ def test_controlled_gate_may_target_an_out_of_reach_pillar(game):
     replay(game, solution.plan)
 
     assert walk_to_end(game)
+
+
+def test_swap_plan_actually_wins_in_the_game(game):
+    """SWAP is the only way past a |1> pillar when a free |0> pillar exists.
+
+    The swap partner (4,6) is out of reach, which SWAP allows just like the
+    target of a controlled gate.
+    """
+    load(game, "swap_needed.json")
+
+    solution = level_solver.solve(
+        level_solver.snapshot(game)
+    )
+
+    assert solution.plan == (
+        ("gate", "SWAP", (4, 4), (4, 6)),
+    )
+
+    replay(game, solution.plan)
+
+    assert walk_to_end(game)
+
+
+def test_swap_moves_entanglement_without_growing_blocks(game):
+    """Swapping one half of a Bell pair moves the entanglement with it.
+
+    The game's groups must follow, or `snapshot` cannot factor the state along
+    them; and the solver's own SWAP must not merge unrelated blocks.
+    """
+    load(game, "swap_entangled.json")
+
+    predicted = level_solver._apply_gate(
+        level_solver.snapshot(game),
+        "SWAP",
+        (4, 4),
+        (4, 6),
+    )
+
+    replay(game, (("gate", "SWAP", (4, 4), (4, 6)),))
+
+    assert sorted(
+        sorted(obj.position for obj in group.objects)
+        for group in game.grouping_system.groups
+    ) == [[(4, 4)], [(4, 6), (5, 4)]]
+
+    after = level_solver.snapshot(game)
+
+    assert sorted(block.qubits for block in after.blocks) == [
+        ((4, 4),),
+        ((4, 6), (5, 4)),
+    ]
+
+    assert_same_state(predicted, after)
+
+    _compare_walkability(game)
+
+
+def test_swap_moves_the_phase_colour_with_the_state(game):
+    """|-> and |+> look alike in probabilities; only `phase_Z` tells them apart.
+
+    After swapping |-> onto a |0> pillar, the receiving pillar must show |->,
+    not |+>, and the emptied one must lose the phase tint.
+    """
+    load(game, "swap_needed.json")
+
+    minus = game.objects["4,4"]
+    zero = game.objects["4,6"]
+
+    minus.apply_effect(game, gates["H"])  # |1> -> |->
+
+    assert minus.phase_Z is True
+
+    replay(game, (("gate", "SWAP", (4, 4), (4, 6)),))
+
+    assert zero.phase_Z is True
+    assert minus.phase_Z is False
+    assert minus.color == (255, 255, 255)
+
+
+@pytest.mark.parametrize(
+    "level",
+    [*SHIPPED_LEVELS, "swap_needed.json", "swap_entangled.json"],
+)
+def test_level_data_state_matches_the_game(game, level):
+    """`state_from_level_data` must build the same state as loading the level."""
+    load(game, level)
+
+    path = (
+        f"./levels/{level}.json"
+        if isinstance(level, int)
+        else os.path.join(FIXTURES, level)
+    )
+
+    with open(path, encoding="utf-8") as file:
+        from_data = level_solver.state_from_level_data(json.load(file))
+
+    assert_same_state(from_data, level_solver.snapshot(game))
 
 
 def test_wasting_a_gate_makes_level_2_unsolvable(game):

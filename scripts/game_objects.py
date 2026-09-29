@@ -3,7 +3,7 @@ from collections import OrderedDict
 import enum
 import cirq
 import numpy as np
-from scripts.common_functions import add_text
+from scripts.common_functions import add_text, font
 import unitary.alpha as alpha
 from scripts.flip_phase import FlipPhase
 from scripts.swap import SwapEffect
@@ -139,7 +139,14 @@ class LootableObject(BaseObject):
         self.rect.x = x * BLOCK_SIZE
         self.rect.y = y * BLOCK_SIZE
         self.item = item
-        add_text(self, item, box_rect.width, box_rect.height)
+        # Centre the gate name on the lid so multi-letter names (SWAP, CNOT)
+        # stay inside the box.
+        add_text(
+            self,
+            item,
+            (self.rect.width - font(24).size(item)[0]) // 2,
+            box_rect.height,
+        )
 
     def function(self, game, x, y):
         """Adds the item to the player's hotbar and removes the object."""

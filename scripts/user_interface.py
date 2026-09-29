@@ -559,15 +559,20 @@ class Hotbar:
 
         self.help_close_rect = close
 
+        # Four columns keep every gate inside the window; a short last row is
+        # centred.
+        columns = 4
+
         for index, key in enumerate(gates):
-            column = index % 3
-            row = index // 3
+            column = index % columns
+            row = index // columns
+            in_row = min(columns, len(gates) - row * columns)
 
             card = pygame.Rect(
-                78 + column * 216,
-                116 + row * 198,
-                196,
-                174,
+                78 + column * 164 + (columns - in_row) * 82,
+                116 + row * 206,
+                152,
+                194,
             )
 
             pygame.draw.rect(

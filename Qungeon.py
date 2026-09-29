@@ -571,16 +571,31 @@ class Game:
                         )
 
                     elif obj.control == "SWAP":
-                        # Combined branch functionality:
-                        # SWAP exchanges two qubit states without merging
-                        # the two groups.
-                        gates["SWAP"](obj, other_obj)
-                        obj.apply_effect(self)
-                        other_obj.apply_effect(self)
+                        self.swap_pillars(obj, other_obj)
 
                     return obj.control
 
             return False
+
+    def swap_pillars(self, obj, other_obj):
+        """Exchange the quantum states of two pillars.
+
+        SWAP creates no new entanglement, so the groups are not merged; the
+        two pillars trade places in them instead, because each now carries the
+        other's correlations. The level solver factors the state along these
+        groups, so they must stay accurate.
+
+        The cached histogram and the phase flag used for colouring move with
+        the state as well; `apply_effect` cannot infer a swapped-in phase.
+        """
+        gates["SWAP"](obj, other_obj)
+        self.grouping_system.swap(obj, other_obj)
+
+        obj.states, other_obj.states = other_obj.states, obj.states
+        obj.phase_Z, other_obj.phase_Z = other_obj.phase_Z, obj.phase_Z
+
+        obj.apply_effect(self)
+        other_obj.apply_effect(self)
 
     def correlation_update(self):
         """Update visual representation of object correlations."""

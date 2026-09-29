@@ -40,11 +40,31 @@ def key(game, value):
 
 
 def click(game, action):
-    rect = next(
-        rect
-        for name, rect, _, _ in game.menu.buttons()
-        if name == action
-    )
+    def target():
+        return next(
+            rect
+            for name, rect, _, _ in game.menu.buttons()
+            if name == action
+        )
+
+    # Like a player, wheel a scrolled-away button into view before clicking.
+    view = game.menu.button_view(action)
+
+    for _ in range(50):
+        if view is None or view.rect.contains(target()):
+            break
+
+        pygame.event.post(
+            pygame.event.Event(
+                pygame.MOUSEWHEEL,
+                x=0,
+                y=-1 if target().top > view.rect.top else 1,
+                pos=view.rect.center,
+            )
+        )
+        game.run_frame()
+
+    rect = target()
 
     for kind in (
         pygame.MOUSEBUTTONDOWN,
@@ -317,6 +337,46 @@ def test_skip_screen_survives_a_broken_next_level(
     assert game.current_level == 1
     assert game.menu.page == "complete"
     assert game.quantum_run.circuit["level"] == 1
+
+
+def test_main_menu_clears_the_footer(game):
+    """The footer hints are drawn at y=570; buttons (and their 4px shadow) must end above it."""
+    rects = [rect for _, rect, *_ in game.menu.buttons()]
+
+    assert all(rect.bottom + 4 < 570 for rect in rects)
+    assert not any(
+        a.colliderect(b)
+        for i, a in enumerate(rects)
+        for b in rects[i + 1:]
+    )
+
+
+def test_level_grid_scrolls_every_level_into_view_above_back(game):
+    """With more rows than fit, keyboard focus scrolls each card into view."""
+    game.available_levels = list(range(1, 15))
+    click(game, "levels")
+
+    view = game.menu.level_scroll
+    back = next(
+        rect for action, rect, *_ in game.menu.buttons()
+        if action == "back"
+    )
+
+    assert view.max_y > 0
+    assert not view.rect.colliderect(back)
+
+    seen = set()
+
+    for _ in game.available_levels:
+        action, rect, *_ = game.menu.buttons()[game.menu.focus]
+        seen.add(action)
+
+        assert view.rect.contains(rect), action
+
+        game.menu.draw()
+        key(game, pygame.K_DOWN)
+
+    assert seen == {f"level:{level}" for level in game.available_levels}
 
 
 @pytest.mark.parametrize("level", range(1, 9))
