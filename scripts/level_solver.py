@@ -24,7 +24,10 @@ How the state is represented
 * **Movement is collapsed away.** Instead of searching over individual steps,
   the solver computes the *region* of tiles the player can currently reach.
   Every tile in a region is equivalent (movement is free and reversible), so a
-  region is one search node rather than one node per tile.
+  region is one search node rather than one node per tile. The exception is
+  the moment a gate is spent: it can block tiles, leaving the player on one
+  side or the other depending on where they stood, so each gate is tried from
+  every standing position that leads to a different outcome.
 
 * **The quantum state is kept factored.** A joint state vector over every
   pillar would be the wrong size: level 6 has 15 pillars (32768 amplitudes) but
@@ -890,12 +893,59 @@ def _apply_gate(state, name, pillar, target):
     )
 
 
-def _successors(state, region):
-    """Every state-changing action available from `state`, as (action, state).
+def _stand_and_apply(state, region, action, applied, pillar):
+    """One successor per region the player can be left in after a gate.
 
-    Movement is absent by design - it is already folded into `region`. The only
-    two irreversible actions in the game are picking up a loot box and spending
-    a gate, and both appear here.
+    A gate can block tiles, so where the player stood while using it decides
+    which side of a newly blocked pillar they end up on. Every tile of `region`
+    within reach of `pillar` is a candidate. A candidate inside the region an
+    earlier candidate is left in adds nothing: from there the player could walk
+    to it and do anything it allows. So each outcome is yielded once, and the
+    player's current tile is tried first so plans only move when it matters.
+    """
+    candidates = sorted(
+        (
+            position
+            for position in region
+            if abs(position[0] - pillar[0]) <= 1
+            and abs(position[1] - pillar[1]) <= 1
+        ),
+        key=lambda position: (position != state.player, position),
+    )
+
+    covered = set()
+
+    for position in candidates:
+        if position in covered:
+            continue
+
+        following = SolverState(
+            board=applied.board,
+            player=position,
+            inventory=applied.inventory,
+            loot=applied.loot,
+            blocks=applied.blocks,
+        )
+
+        covered |= reachable(following)
+
+        steps = (
+            ()
+            if position == state.player
+            else (("move", position),)
+        )
+
+        yield steps + (action,), following
+
+
+def _successors(state, region):
+    """Every state-changing action available from `state`, as (actions, state).
+
+    `actions` is the tuple of plan steps leading to `state`. Free movement is
+    folded into `region`; a ("move", position) step appears only where it
+    matters - where the player stands when spending a gate. The only two
+    irreversible actions in the game are picking up a loot box and spending a
+    gate, and both appear here.
 
     A generator, so the successor states of a branch the search never reaches
     are never simulated.
@@ -903,7 +953,7 @@ def _successors(state, region):
     for position, name in sorted(state.loot):
         if position in region:
             yield (
-                ("loot", position, name),
+                (("loot", position, name),),
                 _take_loot(
                     state,
                     position,
@@ -918,28 +968,30 @@ def _successors(state, region):
 
     for name, _count in state.inventory:
         for pillar in pillars:
-            if name in control_gates:
-                # The control must be within reach; the target may be any pillar.
-                for target in state.board.pillars:
-                    if target != pillar:
-                        yield (
-                            ("gate", name, pillar, target),
-                            _apply_gate(
-                                state,
-                                name,
-                                pillar,
-                                target,
-                            ),
-                        )
-            else:
-                yield (
-                    ("gate", name, pillar, None),
+            # For a controlled gate or SWAP the pillar the gate is dropped on
+            # must be within reach; the target may be any other pillar.
+            targets = (
+                [
+                    target
+                    for target in state.board.pillars
+                    if target != pillar
+                ]
+                if name in control_gates
+                else [None]
+            )
+
+            for target in targets:
+                yield from _stand_and_apply(
+                    state,
+                    region,
+                    ("gate", name, pillar, target),
                     _apply_gate(
                         state,
                         name,
                         pillar,
-                        None,
+                        target,
                     ),
+                    pillar,
                 )
 
 
@@ -1000,13 +1052,13 @@ def solve(state, budget=DEFAULT_BUDGET):
             exhausted = True
             return None
 
-        for action, following in _successors(
+        for actions, following in _successors(
             current,
             region,
         ):
             found = descend(
                 following,
-                plan + (action,),
+                plan + actions,
             )
 
             if found is not None:

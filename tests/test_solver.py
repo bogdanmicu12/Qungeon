@@ -78,15 +78,21 @@ def key_of(position):
 
 
 def replay(game, plan):
-    """Apply a solver plan to a real Game, through the game's own methods."""
+    """Apply a solver plan to a real Game, through the game's own methods.
+
+    Moves and loot pickups are walked with the game's movement code, and every
+    gate must be within the player's reach, so a plan that stands in the wrong
+    place fails here.
+    """
     for action in plan:
-        if action[0] == "loot":
-            _, position, _name = action
-            game.objects[key_of(position)].function(game, *position)
+        if action[0] in ("move", "loot"):
+            assert walk_to(game, action[1]), action
             continue
 
         _, name, pillar, target = action
         obj = game.objects[key_of(pillar)]
+
+        assert game.player.distance(*pillar), action
 
         if name == "SWAP":
             game.swap_pillars(obj, game.objects[key_of(target)])
@@ -128,10 +134,23 @@ def walk_to_end(game):
     simply leaves the player where they were. Backtracking is safe because
     movement in this game is reversible.
     """
-    return _explore(game, {tuple(game.player.position)})
+    return _explore(
+        game,
+        {tuple(game.player.position)},
+        lambda: game.menu.page == "complete",
+    )
 
 
-def _explore(game, seen):
+def walk_to(game, target):
+    """Walk the player onto `target` with the game's own moves, like walk_to_end."""
+    return tuple(game.player.position) == target or _explore(
+        game,
+        {tuple(game.player.position)},
+        lambda: tuple(game.player.position) == target,
+    )
+
+
+def _explore(game, seen, done):
     origin = tuple(game.player.position)
 
     for delta, key in DIRECTIONS.items():
@@ -148,13 +167,13 @@ def _explore(game, seen):
         game.update_position(key)
         game.update_hop(100)
 
-        if game.menu.page == "complete":
+        if done():
             return True
 
         if tuple(game.player.position) != destination:
             continue
 
-        if _explore(game, seen):
+        if _explore(game, seen, done):
             return True
 
         game.update_position(OPPOSITE[key])
@@ -331,6 +350,38 @@ def test_swap_plan_actually_wins_in_the_game(game):
     replay(game, solution.plan)
 
     assert walk_to_end(game)
+
+
+def test_level_1_swap_route_is_found_after_x_on_the_corridor_pillar(game):
+    """X on (5,4) opens the corridor to the SWAP chest; the level is still winnable.
+
+    Take the SWAP at (6,4), walk back to (4,4) and swap the cleared (5,4) with
+    the |1> pillar (4,5) that blocks the way down. Using SWAP from the chest
+    tile instead would re-block (5,4) and trap the player in the dead end, so
+    the solver must consider where the player stands when spending a gate.
+    """
+    load(game, 1)
+
+    game.objects["5,4"].apply_effect(game, gates["X"])
+    game.hotbar.remove_by_key("X")
+
+    solution = level_solver.solve(level_solver.snapshot(game))
+
+    assert solution.solvable is True
+    assert ("loot", (6, 4), "SWAP") in solution.plan
+
+    replay(game, solution.plan)
+
+    assert walk_to_end(game)
+
+    # The same holds once the chest has been taken and the player stands on it.
+    load(game, 1)
+
+    game.objects["5,4"].apply_effect(game, gates["X"])
+    game.hotbar.remove_by_key("X")
+
+    assert walk_to(game, (6, 4))
+    assert level_solver.is_solvable(game) is True
 
 
 def test_swap_moves_entanglement_without_growing_blocks(game):
