@@ -1,14 +1,34 @@
 import os
 import asyncio
+import json
 import pygame
 import argparse
-import json
 
 import unitary.alpha as alpha
 from pygame.locals import (
-    KEYDOWN, MOUSEBUTTONDOWN, MOUSEBUTTONUP, QUIT,
-    K_ESCAPE, K_a, K_d, K_q, K_r, K_s, K_w,
+    KEYDOWN,
+    MOUSEBUTTONDOWN,
+    MOUSEBUTTONUP,
+    QUIT,
+    K_ESCAPE,
+    K_a,
+    K_d,
+    K_h,
+    K_q,
+    K_r,
+    K_s,
+    K_w,
+    K_1,
+    K_2,
+    K_3,
+    K_4,
+    K_5,
+    K_6,
+    K_7,
+    K_8,
+    K_9,
 )
+
 from scripts.grouping_system import GroupingSystem
 from scripts.user_interface import Hotbar
 from scripts.game_objects import (
@@ -21,9 +41,25 @@ from scripts.game_objects import (
     pillar_image,
     gates,
 )
-from scripts.common_functions import handle_slot_mouse_down, hover, update_mouse_drag
-from scripts.level_validation import read_level, validate_level, parse_pos, LevelError
-from scripts.menus import MenuUI, BG, load_settings, normalize_settings, save_settings
+from scripts.common_functions import (
+    handle_slot_mouse_down,
+    hover,
+    update_mouse_drag,
+)
+from scripts.level_validation import (
+    read_level,
+    validate_level,
+    parse_pos,
+    LevelError,
+)
+from scripts.menus import (
+    ACCENT,
+    MenuUI,
+    BG,
+    load_settings,
+    normalize_settings,
+    save_settings,
+)
 from scripts import level_solver
 from scripts.quantum_run import QuantumRun, capture_circuit
 from scripts.level_editor import LevelEditor
@@ -36,6 +72,7 @@ SCREEN_BG_COLOR = BG
 GAME_TITLE = "Qungeon"
 DEFAULT_START_LEVEL = 1
 
+# How long the player keeps playing after the solver proves the level is lost.
 STUCK_DELAY_MS = 1800
 
 
@@ -79,14 +116,21 @@ class Game:
 
         self.quantum_run = None
         self.background_quantum_runs = []
+
         self.quantum_notice = ""
+        self.quantum_notice_color = ACCENT
         self.quantum_notice_until = 0
+
+        # Main branch functionality: gate help window.
+        self.gate_help_open = False
 
         pygame.display.set_caption(GAME_TITLE)
 
         self.load_level(f"./levels/{self.current_level}.json")
 
         self.menu = MenuUI(self)
+
+        # Branch functionality: level editor.
         self.editor = LevelEditor(self)
 
         if getattr(args, "start_direct", False):
@@ -94,6 +138,7 @@ class Game:
             self.menu.open("playing")
 
     def find_levels(self):
+        """Find all numeric JSON level files."""
         return sorted(
             int(filename[:-5])
             for filename in os.listdir("./levels")
@@ -101,17 +146,17 @@ class Game:
         )
 
     def open_editor(self):
+        """Open the level editor."""
         self.cancel_dragging()
         self.editor = LevelEditor(self)
         self.menu.open("editor")
 
     def load_level(self, filename):
         """Load and validate a level before replacing the current game state."""
+        # read_level() is responsible for parsing the file.
         level_data = read_level(filename)
 
-        with open(filename, "r") as file:
-            level_data = json.load(file)
-
+        # Keep explicit validation functionality from the combined branch.
         validate_level(level_data, filename)
 
         self.clean_up()
@@ -165,6 +210,9 @@ class Game:
 
     def clean_up(self):
         """Reset all game objects, tiles, quantum state, and hotbar slots."""
+        self.clear_quantum_notice()
+        self.gate_help_open = False
+
         self.tiles.clear()
         self.tile_sprites.empty()
 
@@ -173,6 +221,10 @@ class Game:
 
         self.hotbar.slots.clear()
         self.hotbar.sprites.empty()
+
+        # Main branch functionality.
+        if hasattr(self.hotbar, "selected_key"):
+            self.hotbar.selected_key = None
 
         self.quantum_grid.clear()
 
@@ -246,11 +298,18 @@ class Game:
             self.hop_animation(start_pos, end_pos)
 
         elif object_key in self.objects:
-            if self.objects[object_key].function(
-                self,
-                new_x,
-                new_y,
+            obj = self.objects[object_key]
+
+            # Main branch: selected quantum gates can be applied to
+            # QuantumObjects before their normal movement function runs.
+            if (
+                isinstance(obj, QuantumObject)
+                and self.hotbar.apply_selected(self, obj)
             ):
+                if obj.function(self, new_x, new_y):
+                    self.hop_animation(start_pos, end_pos)
+
+            elif obj.function(self, new_x, new_y):
                 self.hop_animation(start_pos, end_pos)
 
         elif tile and tile.type != TileType.WALL:
@@ -285,16 +344,32 @@ class Game:
                     "this circuit cannot run on hardware."
                 )
 
+        # Keep completion screen as a recovery route.
         self.menu.open("complete")
 
         if skip_screen and self.has_next_level():
             self.next_level()
 
-    def show_quantum_notice(self, message):
+    def show_quantum_notice(
+        self,
+        message,
+        color=ACCENT,
+        duration=8000,
+    ):
+        """Display a temporary quantum hardware notification."""
         self.quantum_notice = message
-        self.quantum_notice_until = pygame.time.get_ticks() + 8000
+        self.quantum_notice_color = color
+        self.quantum_notice_until = (
+            pygame.time.get_ticks() + duration
+        )
+
+    def clear_quantum_notice(self):
+        """Clear the current quantum hardware notification."""
+        self.quantum_notice = ""
+        self.quantum_notice_until = 0
 
     def update_background_quantum_runs(self):
+        """Update quantum runs executing in the background."""
         for run in self.background_quantum_runs[:]:
             previous = run.data["state"]
 
@@ -330,6 +405,7 @@ class Game:
                 self.background_quantum_runs.remove(run)
 
     def next_level(self):
+        """Advance to the next level in a full run."""
         index = self.available_levels.index(self.current_level)
 
         if (
@@ -342,6 +418,7 @@ class Game:
             )
 
     def has_next_level(self):
+        """Return whether another level exists in the current full run."""
         return (
             self.run_mode == "full"
             and self.current_level != self.available_levels[-1]
@@ -362,13 +439,19 @@ class Game:
         self.menu.open("playing")
 
     def restart_level(self):
+        """Restart the current level."""
         self.start_level(self.current_level, self.run_mode)
 
     def return_to_menu(self):
+        """Return to the main menu."""
         self.menu.open("main")
 
     def update_stuck(self, elapsed):
-        """Check whether the current level has become unwinnable."""
+        """Check whether the current level has become unwinnable.
+
+        The solver runs only when a resource was consumed. A solver result of
+        "unknown" is not considered stuck.
+        """
         if not self.settings["stuck_warning"]:
             self.stuck_elapsed = None
             return
@@ -390,7 +473,7 @@ class Game:
                 self.show_failed()
 
     def show_failed(self):
-        """Display the failure screen."""
+        """Open the failure screen and stop any pending countdown."""
         self.stuck_elapsed = None
         self.menu.open("failed")
 
@@ -432,8 +515,10 @@ class Game:
         for sprite in all_sprites:
             self.screen.blit(sprite.image, sprite.rect)
 
+        # Preserve combined-branch hotbar rendering.
         self.hotbar.sprites.draw(self.screen)
 
+        # Main branch help/selection UI where supported.
         if interactive:
             if self.settings["entanglement_guides"]:
                 self.entanglement_visuals()
@@ -441,6 +526,13 @@ class Game:
             hover(self.hotbar.slots, self.screen)
 
         self.menu.draw_hud()
+
+        # Main branch functionality.
+        if self.gate_help_open and hasattr(
+            self.hotbar,
+            "draw_help_window",
+        ):
+            self.hotbar.draw_help_window(self.screen)
 
         if update:
             pygame.display.update()
@@ -479,8 +571,9 @@ class Game:
                         )
 
                     elif obj.control == "SWAP":
-                        # SWAP exchanges two qubit states and does not
-                        # merge the two groups.
+                        # Combined branch functionality:
+                        # SWAP exchanges two qubit states without merging
+                        # the two groups.
                         gates["SWAP"](obj, other_obj)
                         obj.apply_effect(self)
                         other_obj.apply_effect(self)
@@ -592,7 +685,11 @@ class Game:
 
         pygame.quit()
 
-    async def run_browser(self, should_pause=None, on_page_change=None):
+    async def run_browser(
+        self,
+        should_pause=None,
+        on_page_change=None,
+    ):
         """Run the game loop while yielding frames to the browser."""
         previous_page = None
 
@@ -629,6 +726,7 @@ class Game:
 
             previous_page = self.menu.page
 
+            # Preserve level editor functionality.
             if self.menu.page == "editor":
                 self.editor.handle_event(event)
 
@@ -642,19 +740,35 @@ class Game:
                 event.type == MOUSEBUTTONDOWN
                 and event.button == 1
             ):
-                if pygame.Rect(
+                # Main branch gate help functionality.
+                if self.gate_help_open:
+                    close_rect = getattr(
+                        self.hotbar,
+                        "help_close_rect",
+                        None,
+                    )
+
+                    if (
+                        close_rect is not None
+                        and close_rect.collidepoint(event.pos)
+                    ):
+                        self.gate_help_open = False
+
+                elif pygame.Rect(
                     652,
                     29,
                     108,
                     35,
                 ).collidepoint(event.pos):
                     self.menu.open("paused")
+
                 else:
                     obj_effect = self.handle_object_dragging(event)
 
                     if obj_effect:
                         self.hotbar.remove_by_key(obj_effect)
                     else:
+                        # Preserve combined branch mouse handling.
                         handle_slot_mouse_down(
                             self.hotbar.slots,
                             event,
@@ -671,7 +785,38 @@ class Game:
 
     def handle_keydown(self, event):
         """Handle keyboard input."""
-        if event.key in (K_ESCAPE, K_q):
+
+        # Main branch: gate help.
+        if event.key == K_h:
+            self.gate_help_open = not self.gate_help_open
+            return
+
+        if self.gate_help_open:
+            if event.key == K_ESCAPE:
+                self.gate_help_open = False
+            return
+
+        # Main branch: numbered hotbar selection.
+        number_keys = (
+            K_1,
+            K_2,
+            K_3,
+            K_4,
+            K_5,
+            K_6,
+            K_7,
+            K_8,
+            K_9,
+        )
+
+        if event.key in number_keys:
+            if hasattr(self.hotbar, "select_by_number"):
+                self.hotbar.select_by_number(
+                    self,
+                    number_keys.index(event.key) + 1,
+                )
+
+        elif event.key in (K_ESCAPE, K_q):
             self.menu.open("paused")
 
         elif event.key in (K_w, K_s, K_a, K_d):
@@ -691,8 +836,10 @@ if __name__ == "__main__":
         nargs="?",
         type=int,
         default=None,
-        help="Jump directly into a single level; "
-        "omit to open the menu",
+        help=(
+            "Jump directly into a single level; "
+            "omit to open the menu"
+        ),
     )
 
     args = parser.parse_args()

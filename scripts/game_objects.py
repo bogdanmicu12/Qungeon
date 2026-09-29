@@ -182,15 +182,18 @@ class QuantumObject(BaseObject, alpha.QuantumObject):
             (0, 0),
             special_flags=pygame.BLEND_RGBA_MULT
         )
-        self.color = None
 
+        self.color = None
         self.phase_Z = False
         self.control = None
+
         game.quantum_grid.add_object(self)
+
         self.states = game.quantum_grid.get_probabilities(
             [self],
             PEEK_COUNT
         )[0]
+
         self.group = game.grouping_system.add(self)
 
     def apply_effect(self, game, effect=None):

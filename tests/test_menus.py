@@ -106,7 +106,9 @@ def test_start_requires_setup_and_full_run_advances(game):
 def test_full_run_settings_reveal_auto_queue_and_save_both_preferences(game):
     saved = []
 
-    game.persist_settings = lambda settings: saved.append(dict(settings))
+    game.persist_settings = lambda settings: saved.append(
+        dict(settings)
+    )
 
     click(game, "setup")
 
@@ -262,6 +264,7 @@ def test_auto_queue_captures_each_level_before_advancing_and_processes_in_backgr
     assert requests[1][0].circuit["level"] == 2
     assert len(game.background_quantum_runs) == 2
 
+    # A response arriving after the next level loads is still processed.
     first._reply = {"state": "queued"}
 
     game.menu.open("paused")
@@ -755,6 +758,7 @@ def test_browser_reports_page_changes_without_repeating_each_frame(
 # --------------------------------------------------------------------------
 # Unwinnable-level detection
 # --------------------------------------------------------------------------
+
 
 class Clock:
     """Deterministic stand-in for pygame.time.get_ticks."""

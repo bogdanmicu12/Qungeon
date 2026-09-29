@@ -45,7 +45,6 @@
     "./unitary/alpha/quantum_world.py": "./unitary/alpha/quantum_world.py",
     "./unitary/alpha/qubit_effects.py": "./unitary/alpha/qubit_effects.py",
     "./unitary/alpha/qudit_effects.py": "./unitary/alpha/qudit_effects.py",
-    "./unitary/alpha/qudit_gates.py": "./unitary/alpha/qudit_gates.py",
     "./unitary/alpha/qudit_state_transform.py": "./unitary/alpha/qudit_state_transform.py",
     "./unitary/alpha/sparse_vector_simulator.py": "./unitary/alpha/sparse_vector_simulator.py"
   }

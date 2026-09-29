@@ -39,6 +39,7 @@ DIRECTIONS = {
     (0, 1): pygame.K_s,
     (0, -1): pygame.K_w,
 }
+
 OPPOSITE = {
     pygame.K_d: pygame.K_a,
     pygame.K_a: pygame.K_d,
@@ -50,8 +51,12 @@ OPPOSITE = {
 @pytest.fixture
 def game():
     """A real Game on level 1; individual tests load whichever level they need."""
-    game = Game(SimpleNamespace(level=1), settings={}, persist_settings=lambda _: True)
-    game.run_mode = "single"      # reaching END opens "complete" instead of advancing
+    game = Game(
+        SimpleNamespace(level=1),
+        settings={},
+        persist_settings=lambda _: True,
+    )
+    game.run_mode = "single"
     pygame.event.clear()
     yield game
     pygame.event.clear()
@@ -80,11 +85,15 @@ def replay(game, plan):
 
         _, name, pillar, target = action
         obj = game.objects[key_of(pillar)]
+
         if name in control_gates:
-            # Same call Game.handle_object_dragging makes for a controlled gate.
-            obj.apply_effect(game, [level_solver.CONTROL_EFFECTS[name], target])
+            obj.apply_effect(
+                game,
+                [level_solver.CONTROL_EFFECTS[name], target],
+            )
         else:
             obj.apply_effect(game, gates[name])
+
         game.hotbar.remove_by_key(name)
 
 
@@ -102,23 +111,33 @@ def walk_to_end(game):
 
 def _explore(game, seen):
     origin = tuple(game.player.position)
+
     for delta, key in DIRECTIONS.items():
-        destination = (origin[0] + delta[0], origin[1] + delta[1])
+        destination = (
+            origin[0] + delta[0],
+            origin[1] + delta[1],
+        )
+
         if destination in seen:
             continue
+
         seen.add(destination)
 
         game.update_position(key)
-        game.update_hop(100)                      # long enough to finish the hop
+        game.update_hop(100)
+
         if game.menu.page == "complete":
             return True
+
         if tuple(game.player.position) != destination:
-            continue                              # the game refused the step
+            continue
+
         if _explore(game, seen):
             return True
 
-        game.update_position(OPPOSITE[key])       # back out and try another way
+        game.update_position(OPPOSITE[key])
         game.update_hop(100)
+
     return False
 
 
@@ -129,7 +148,9 @@ def _explore(game, seen):
 @pytest.mark.parametrize("level", SHIPPED_LEVELS)
 def test_shipped_level_is_solvable(game, level):
     load(game, level)
-    assert level_solver.solve(level_solver.snapshot(game)).solvable is True
+    assert level_solver.solve(
+        level_solver.snapshot(game)
+    ).solvable is True
 
 
 @pytest.mark.parametrize("level", SHIPPED_LEVELS)
@@ -140,11 +161,19 @@ def test_returned_plan_actually_wins_in_the_game(game, level):
     and target, or a walkability rule that has drifted from the game's.
     """
     load(game, level)
-    solution = level_solver.solve(level_solver.snapshot(game))
+
+    solution = level_solver.solve(
+        level_solver.snapshot(game)
+    )
+
     assert solution.solvable is True
 
     replay(game, solution.plan)
-    assert walk_to_end(game), f"level {level}: solver plan did not reach END"
+
+    assert walk_to_end(game), (
+        f"level {level}: solver plan did not reach END"
+    )
+
     assert game.menu.page == "complete"
 
 
@@ -157,23 +186,42 @@ def test_walkability_matches_the_game(game, level):
     than just the blocking one.
     """
     load(game, level)
-    blocked = _compare_walkability(game)
-    assert False in blocked, f"level {level}: expected some pillar to block"
 
-    replay(game, level_solver.solve(level_solver.snapshot(game)).plan)
-    assert True in _compare_walkability(game), f"level {level}: nothing was cleared"
+    blocked = _compare_walkability(game)
+
+    assert False in blocked, (
+        f"level {level}: expected some pillar to block"
+    )
+
+    replay(
+        game,
+        level_solver.solve(
+            level_solver.snapshot(game)
+        ).plan,
+    )
+
+    assert True in _compare_walkability(game), (
+        f"level {level}: nothing was cleared"
+    )
 
 
 def _compare_walkability(game):
     """Assert solver and game agree on every pillar; return the answers seen."""
     state = level_solver.snapshot(game)
     answers = []
+
     for obj in game.objects.values():
         if isinstance(obj, QuantumObject):
             position = obj.position
             expected = obj.function(game, *position)
-            assert state.block_of(position).walkable(position) is expected, position
+
+            assert (
+                state.block_of(position).walkable(position)
+                is expected
+            ), position
+
             answers.append(expected)
+
     return answers
 
 
@@ -188,12 +236,21 @@ def test_two_pillars_need_two_gates(game):
     anywhere the player can stand until (5,4) has been cleared and stepped on.
     """
     load(game, "two_pillars_one_gate.json")
-    assert level_solver.solve(level_solver.snapshot(game)).solvable is False
+
+    assert level_solver.solve(
+        level_solver.snapshot(game)
+    ).solvable is False
 
     load(game, "two_pillars_two_gates.json")
-    solution = level_solver.solve(level_solver.snapshot(game))
+
+    solution = level_solver.solve(
+        level_solver.snapshot(game)
+    )
+
     assert solution.solvable is True
+
     replay(game, solution.plan)
+
     assert walk_to_end(game)
 
 
@@ -206,17 +263,30 @@ def test_controlled_gate_may_target_an_out_of_reach_pillar(game):
     near pillar (which starts |1>) onto the far one.
     """
     load(game, "remote_target.json")
+
     state = level_solver.snapshot(game)
 
     region = level_solver.reachable(state)
-    in_reach = level_solver._reachable_pillars(state, region)
-    assert (4, 4) in in_reach and (6, 4) not in in_reach
+    in_reach = level_solver._reachable_pillars(
+        state,
+        region,
+    )
+
+    assert (4, 4) in in_reach
+    assert (6, 4) not in in_reach
 
     solution = level_solver.solve(state)
+
     assert solution.solvable is True
-    assert ("gate", "CNOT", (4, 4), (6, 4)) in solution.plan
+    assert (
+        "gate",
+        "CNOT",
+        (4, 4),
+        (6, 4),
+    ) in solution.plan
 
     replay(game, solution.plan)
+
     assert walk_to_end(game)
 
 
@@ -227,12 +297,20 @@ def test_wasting_a_gate_makes_level_2_unsolvable(game):
     superposed pillar, but nothing is left for the |1> pillar behind it.
     """
     load(game, 2)
-    assert level_solver.solve(level_solver.snapshot(game)).solvable is True
 
-    game.objects["5,4"].apply_effect(game, gates["X"])
+    assert level_solver.solve(
+        level_solver.snapshot(game)
+    ).solvable is True
+
+    game.objects["5,4"].apply_effect(
+        game,
+        gates["X"],
+    )
     game.hotbar.remove_by_key("X")
 
-    assert level_solver.solve(level_solver.snapshot(game)).solvable is False
+    assert level_solver.solve(
+        level_solver.snapshot(game)
+    ).solvable is False
 
 
 def test_relative_phase_matters_on_level_3(game):
@@ -244,12 +322,20 @@ def test_relative_phase_matters_on_level_3(game):
     call this solvable.
     """
     load(game, 3)
-    assert level_solver.solve(level_solver.snapshot(game)).solvable is True
 
-    game.objects["5,4"].apply_effect(game, gates["X"])
+    assert level_solver.solve(
+        level_solver.snapshot(game)
+    ).solvable is True
+
+    game.objects["5,4"].apply_effect(
+        game,
+        gates["X"],
+    )
     game.hotbar.remove_by_key("X")
 
-    assert level_solver.solve(level_solver.snapshot(game)).solvable is False
+    assert level_solver.solve(
+        level_solver.snapshot(game)
+    ).solvable is False
 
 
 def test_wasted_cnots_make_entangled_level_8_unsolvable(game):
@@ -260,14 +346,26 @@ def test_wasted_cnots_make_entangled_level_8_unsolvable(game):
     state, so every pillar keeps P(|0>) = 1/2 and the corridor stays shut.
     """
     load(game, 8)
-    assert level_solver.solve(level_solver.snapshot(game)).solvable is True
+
+    assert level_solver.solve(
+        level_solver.snapshot(game)
+    ).solvable is True
 
     control = game.objects["4,3"]
+
     for _ in range(2):
-        control.apply_effect(game, [level_solver.CONTROL_EFFECTS["CNOT"], (5, 3)])
+        control.apply_effect(
+            game,
+            [
+                level_solver.CONTROL_EFFECTS["CNOT"],
+                (5, 3),
+            ],
+        )
         game.hotbar.remove_by_key("CNOT")
 
-    assert level_solver.solve(level_solver.snapshot(game)).solvable is False
+    assert level_solver.solve(
+        level_solver.snapshot(game)
+    ).solvable is False
 
 
 # --------------------------------------------------------------------------
@@ -281,7 +379,11 @@ def test_every_gate_the_game_offers_is_supported():
             continue
 
         matrix = level_solver.gate_unitary(name)
-        assert matrix.shape == (2, 2), f"{name}: expected a single-qubit gate"
+
+        assert matrix.shape == (
+            2,
+            2,
+        ), f"{name}: expected a single-qubit gate"
 
     # SWAP is a real two-qubit operation, so it deliberately has no 2x2
     # gate_unitary. It must still be accepted by the search implementation.
@@ -301,7 +403,12 @@ def test_every_gate_the_game_offers_is_supported():
 def test_budget_exhaustion_reports_unknown_never_stuck(game):
     """Running out of budget must not be mistaken for an unwinnable level."""
     load(game, 6)
-    solution = level_solver.solve(level_solver.snapshot(game), budget=5)
+
+    solution = level_solver.solve(
+        level_solver.snapshot(game),
+        budget=5,
+    )
+
     assert solution.solvable is None
     assert solution.is_stuck is False
 
@@ -309,6 +416,9 @@ def test_budget_exhaustion_reports_unknown_never_stuck(game):
 def test_is_solvable_reads_the_live_game(game):
     """The public entry point works straight off a Game instance."""
     load(game, 1)
+
     assert level_solver.is_solvable(game) is True
-    game.hotbar.remove_by_key("X")            # level 1's only gate
+
+    game.hotbar.remove_by_key("X")
+
     assert level_solver.is_solvable(game) is False

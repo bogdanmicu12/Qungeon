@@ -2,14 +2,15 @@
 
 Gates are consumed when used, so a player can spend the level's last `X` on the
 wrong pillar and be left with no winning sequence at all. Nothing in the game
-detects that today. This module answers, for an *arbitrary* mid-play state:
+detects that today. This module answers, for an arbitrary mid-play state:
 
     is there still some sequence of actions that reaches the END tile?
 
 and, when there is, returns one such sequence.
 
 Why the question is decidable
------------------------------
+------------------------------
+
 The number of state-changing actions in a level is bounded: every gate is
 consumed on use, and the only source of new gates is the finite set of loot
 boxes. Movement costs nothing and - apart from picking up a loot box - is
@@ -19,10 +20,12 @@ therefore finite and, in practice, tiny.
 
 How the state is represented
 ----------------------------
+
 * **Movement is collapsed away.** Instead of searching over individual steps,
   the solver computes the *region* of tiles the player can currently reach.
-  Every tile in a region is equivalent (movement is free and reversible), so
-  a region is one search node rather than one node per tile.
+  Every tile in a region is equivalent (movement is free and reversible), so a
+  region is one search node rather than one node per tile.
+
 * **The quantum state is kept factored.** A joint state vector over every
   pillar would be the wrong size: level 6 has 15 pillars (32768 amplitudes) but
   only single-qubit gates, so its pillars never entangle. The solver keeps one
@@ -32,13 +35,14 @@ How the state is represented
 
 Relationship to the game code
 -----------------------------
+
 The rules are read from the game rather than restated wherever possible:
 
 * gate unitaries are derived from the live `QuantumEffect` objects in
   `scripts.game_objects.gates`, so a new gate added there needs no change here;
 * walkability uses the game's own `PURE_ZERO_TOL` and the same
   "P(|0>) is exactly 1" rule as `QuantumObject.function`;
-* the starting state is read out of a real `Game` via :func:`snapshot`, so the
+* the starting state is read out of a real `Game` via `snapshot`, so the
   level file, its initial effects and any gates already spent are all accounted
   for without replaying them.
 
@@ -47,6 +51,7 @@ The one rule that must be mirrored is `CONTROL_EFFECTS` below - see its comment.
 Typical use::
 
     from scripts import level_solver
+
     level_solver.is_solvable(game)   # True / False / None ("don't know")
 """
 
@@ -68,9 +73,9 @@ from scripts.game_objects import (
 )
 
 
-# Nodes the search may expand before giving up and reporting "unknown". Reached
-# only by levels far larger than any shipped one; see solve() on why exceeding
-# it must never be reported as "unsolvable".
+# Nodes the search may expand before giving up and reporting "unknown".
+# Reached only by levels far larger than any shipped one; see solve() on why
+# exceeding it must never be reported as "unsolvable".
 DEFAULT_BUDGET = 50_000
 
 # Amplitudes are compared at this many decimals when de-duplicating search
@@ -109,31 +114,35 @@ class _EffectTarget:
 def gate_unitary(name):
     """The 2x2 matrix a hotbar gate applies, derived from the game's own table.
 
-    For a controlled gate this is the matrix applied *to the target* when the
-    control is |1>; the control conditioning is handled by `_apply_controlled`.
+    For a controlled gate this is the matrix applied to the target when the
+    control is |1>; the control conditioning is handled by
+    `_apply_controlled`.
 
-    SWAP is intentionally excluded from the solver for now because it is a
+    SWAP is intentionally excluded from the solver here because it is a
     genuine two-qubit operation rather than a single-qubit unitary.
-
-    Raises KeyError for a gate the solver does not know how to simulate.
     """
     if name == "SWAP":
         # SWAP is a genuine two-qubit operation and is handled by
-        # _apply_swap(). It is deliberately not converted to a 2x2 matrix.
+        # `_apply_swap()`. It is deliberately not converted to a 2x2 matrix.
         raise KeyError("SWAP is a two-qubit gate; use _apply_swap()")
 
     effect = CONTROL_EFFECTS[name] if name in control_gates else gates[name]
+
     if effect is None:
-        raise KeyError(f"gate {name!r} has no effect the solver can simulate")
+        raise KeyError(
+            f"gate {name!r} has no effect the solver can simulate"
+        )
 
     circuit = cirq.Circuit(effect.effect(_EffectTarget()))
-    return np.asarray(cirq.unitary(circuit), dtype=np.complex128)
+    return np.asarray(
+        cirq.unitary(circuit),
+        dtype=np.complex128
+    )
 
 
 # --------------------------------------------------------------------------
 # Quantum state: a partition of the pillars into entangled blocks
 # --------------------------------------------------------------------------
-
 
 class Block:
     """One entangled group of pillars and its joint state vector.
@@ -169,8 +178,10 @@ class Block:
     def walkable(self, pillar):
         """Cached `is_walkable` for one of this block's pillars."""
         cached = self._walkable.get(pillar)
+
         if cached is None:
             cached = self._walkable[pillar] = is_walkable(self, pillar)
+
         return cached
 
 
@@ -182,7 +193,10 @@ def _sort_block(qubits, vector):
         tensor = vector.reshape((2,) * len(qubits)).transpose(order)
         vector = np.ascontiguousarray(tensor).reshape(-1)
 
-    return Block(tuple(qubits[i] for i in order), vector)
+    return Block(
+        tuple(qubits[i] for i in order),
+        vector
+    )
 
 
 def _apply_single(block, pillar, unitary):
@@ -190,6 +204,7 @@ def _apply_single(block, pillar, unitary):
     axis = block.index(pillar)
 
     tensor = block.vector.reshape((2,) * len(block.qubits))
+
     tensor = np.moveaxis(
         np.tensordot(
             unitary,
@@ -330,7 +345,10 @@ def _split(block):
         return [block]
 
     for i in range(len(block.qubits)):
-        rest = [j for j in range(len(block.qubits)) if j != i]
+        rest = [
+            j for j in range(len(block.qubits))
+            if j != i
+        ]
 
         single = cirq.sub_state_vector(
             block.vector,
@@ -373,7 +391,9 @@ def probability_zero(block, pillar):
     branch = [slice(None)] * len(block.qubits)
     branch[axis] = 0
 
-    return float(np.sum(np.abs(tensor[tuple(branch)]) ** 2))
+    return float(
+        np.sum(np.abs(tensor[tuple(branch)]) ** 2)
+    )
 
 
 def is_walkable(block, pillar):
@@ -382,13 +402,15 @@ def is_walkable(block, pillar):
     Same rule and tolerance as `QuantumObject.function`: passable only when the
     pillar is deterministically |0>.
     """
-    return probability_zero(block, pillar) >= 1.0 - PURE_ZERO_TOL
+    return probability_zero(
+        block,
+        pillar
+    ) >= 1.0 - PURE_ZERO_TOL
 
 
 # --------------------------------------------------------------------------
 # Level state
 # --------------------------------------------------------------------------
-
 
 @dataclass(frozen=True)
 class Board:
@@ -517,6 +539,9 @@ def _snapshot_blocks(game):
     `game_objects.exact_probability_zero` makes - and the resulting joint
     vector is split along the partition the game already maintains in
     `GroupingSystem`.
+
+    Pillars the circuit never touched are still |0> and are emitted directly,
+    which also keeps them out of the simulation's width.
     """
     world = game.quantum_grid
 
@@ -527,11 +552,11 @@ def _snapshot_blocks(game):
     ]
 
     result = cirq.Simulator().simulate(world.circuit)
-
     qubit_map = result.qubit_map
+
     joint = np.asarray(
         result.final_state_vector,
-        dtype=np.complex128,
+        dtype=np.complex128
     )
 
     width = len(qubit_map)
@@ -559,6 +584,8 @@ def _snapshot_blocks(game):
         for pillar in untouched
     ]
 
+    # Group the simulated pillars the way the game does; objects in different
+    # groups have never been entangled, so their sub-states factor out.
     groups, seen = [], set()
 
     for group in game.grouping_system.groups:
@@ -579,6 +606,8 @@ def _snapshot_blocks(game):
     )
 
     for members in groups:
+        # Order members by their index in the simulated vector, so the
+        # extracted sub-vector's qubit order is the one `_sort_block` expects.
         members = sorted(
             members,
             key=lambda pillar: qubit_map[pillar.qubit],
@@ -601,8 +630,8 @@ def _snapshot_blocks(game):
         )
 
         if vector is None:
-            # Unexpected entanglement across groups (or ancilla qubits): fall
-            # back to one joint block over every simulated pillar.
+            # Unexpected entanglement across groups (or ancilla qubits):
+            # fall back to one joint block over every simulated pillar.
             if len(simulated) != width:
                 raise ValueError(
                     "quantum world contains qubits that are not pillars; "
@@ -637,7 +666,6 @@ def _snapshot_blocks(game):
 # --------------------------------------------------------------------------
 # Reachability - mirrors Game.update_position
 # --------------------------------------------------------------------------
-
 
 def _can_enter(state, position, loot_positions):
     """Whether the player may step onto `position`.
@@ -724,9 +752,13 @@ def _reachable_pillars(state, region):
 # Search
 # --------------------------------------------------------------------------
 
-
 def _canonical_vector(vector):
-    """Vector bytes with global phase removed, for state de-duplication."""
+    """Vector bytes with global phase removed, for state de-duplication.
+
+    Two vectors differing only by a global phase describe the same physical
+    state, and `cirq.sub_state_vector` can hand back an arbitrary one, so the
+    phase must be normalised before hashing.
+    """
     significant = np.flatnonzero(
         np.abs(vector) > _PHASE_EPS
     )
@@ -744,7 +776,12 @@ def _canonical_vector(vector):
 
 
 def _key(state, region):
-    """Hashable identity of a search node."""
+    """Hashable identity of a search node.
+
+    The player's exact position is replaced by the smallest tile of their
+    region: movement inside a region is free and reversible, so two states that
+    differ only in where the player stands within one region are the same node.
+    """
     return (
         min(region),
         state.inventory,
@@ -792,7 +829,10 @@ def _apply_gate(state, name, pillar, target):
         return SolverState(
             board=state.board,
             player=state.player,
-            inventory=_spend(state.inventory, name),
+            inventory=_spend(
+                state.inventory,
+                name,
+            ),
             loot=state.loot,
             blocks=new_blocks,
         )
@@ -812,7 +852,6 @@ def _apply_gate(state, name, pillar, target):
                 )
             ],
         )
-
     else:
         target_block = state.block_of(target)
 
@@ -853,6 +892,15 @@ def _apply_gate(state, name, pillar, target):
 
 
 def _successors(state, region):
+    """Every state-changing action available from `state`, as (action, state).
+
+    Movement is absent by design - it is already folded into `region`. The only
+    two irreversible actions in the game are picking up a loot box and spending
+    a gate, and both appear here.
+
+    A generator, so the successor states of a branch the search never reaches
+    are never simulated.
+    """
     for position, name in sorted(state.loot):
         if position in region:
             yield (
@@ -871,20 +919,7 @@ def _successors(state, region):
 
     for name, _count in state.inventory:
         for pillar in pillars:
-            if name == "SWAP":
-                # SWAP is dragged from a reachable pillar onto any other pillar.
-                for target in state.board.pillars:
-                    if target != pillar:
-                        yield (
-                            ("gate", name, pillar, target),
-                            _apply_gate(
-                                state,
-                                name,
-                                pillar,
-                                target,
-                            ),
-                        )
-            elif name in control_gates:
+            if name in control_gates:
                 # The control must be within reach; the target may be any pillar.
                 for target in state.board.pillars:
                     if target != pillar:
@@ -923,7 +958,12 @@ class Solution:
 
     @property
     def is_stuck(self):
-        """True only when the level is provably unwinnable."""
+        """True only when the level is provably unwinnable.
+
+        Deliberately False for an exhausted budget: prompting a player to
+        restart a level that was actually still winnable is worse than failing
+        to notice one that was not.
+        """
         return self.solvable is False
 
 
@@ -955,7 +995,6 @@ def solve(state, budget=DEFAULT_BUDGET):
             return None
 
         visited.add(key)
-
         nodes += 1
 
         if nodes > budget:
@@ -1009,12 +1048,15 @@ def state_from_level_data(level_data):
         parsed = _parse_level_pos(position)
         tile = TileType[kind]
         tiles[parsed] = tile
+
         if tile is TileType.START:
             start = parsed
 
     pillars = tuple(
-        sorted(_parse_level_pos(position)
-               for position in level_data["quantum_objects"])
+        sorted(
+            _parse_level_pos(position)
+            for position in level_data["quantum_objects"]
+        )
     )
 
     loot = frozenset(
@@ -1028,13 +1070,19 @@ def state_from_level_data(level_data):
     blocks = tuple(
         Block(
             (pillar,),
-            np.array([1.0, 0.0], dtype=np.complex128),
+            np.array(
+                [1.0, 0.0],
+                dtype=np.complex128
+            ),
         )
         for pillar in pillars
     )
 
     state = SolverState(
-        board=Board(tiles=tiles, pillars=pillars),
+        board=Board(
+            tiles=tiles,
+            pillars=pillars,
+        ),
         player=start,
         inventory=_inventory_of(level_data["gates"]),
         loot=loot,
@@ -1047,13 +1095,19 @@ def state_from_level_data(level_data):
 
         if effect_name == "SWAP":
             target = _parse_level_pos(entry["target"])
+
             state = SolverState(
                 board=state.board,
                 player=state.player,
                 inventory=state.inventory,
                 loot=state.loot,
-                blocks=_apply_swap(state, source, target),
+                blocks=_apply_swap(
+                    state,
+                    source,
+                    target,
+                ),
             )
+
             continue
 
         effect = gate_unitary(effect_name)
@@ -1066,10 +1120,14 @@ def state_from_level_data(level_data):
             if target_block is block:
                 merged, removed = block, [block]
             else:
-                merged = _merge(block, target_block)
+                merged = _merge(
+                    block,
+                    target_block,
+                )
                 removed = [block, target_block]
 
             controlled_effect = CONTROL_EFFECTS.get(effect_name)
+
             if controlled_effect is None:
                 raise ValueError(
                     f"effect {effect_name!r} cannot have a target"
@@ -1091,7 +1149,13 @@ def state_from_level_data(level_data):
             blocks = _replace_blocks(
                 state.blocks,
                 [block],
-                [_apply_single(block, source, effect)],
+                [
+                    _apply_single(
+                        block,
+                        source,
+                        effect,
+                    )
+                ],
             )
 
         state = SolverState(
@@ -1108,7 +1172,10 @@ def state_from_level_data(level_data):
 def _parse_level_pos(value):
     """Small local parser used by state_from_level_data."""
     value = value.strip("() ")
-    x, y = (int(part.strip()) for part in value.split(","))
+    x, y = (
+        int(part.strip())
+        for part in value.split(",")
+    )
     return (x, y)
 
 
@@ -1124,7 +1191,7 @@ def is_solvable(game, budget=DEFAULT_BUDGET):
     """Can this level still be won from its current state?
 
     Returns True, False, or None when the search hit its budget. Callers should
-    treat None as "assume winnable".
+    treat None as "assume winnable" - see `Solution.is_stuck`.
     """
     return solve(
         snapshot(game),

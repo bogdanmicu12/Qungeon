@@ -52,7 +52,7 @@ def save_settings(settings):
     try:
         SETTINGS_PATH.write_text(
             json.dumps(settings, indent=2),
-            encoding="utf-8"
+            encoding="utf-8",
         )
         return True
     except OSError:
@@ -95,13 +95,13 @@ class MenuUI:
 
         self.images["pillar"].fill(
             (*ACCENT, 255),
-            special_flags=pygame.BLEND_RGBA_MULT
+            special_flags=pygame.BLEND_RGBA_MULT,
         )
 
         self.scene_images = {
             name: pygame.transform.scale(
                 image,
-                (48, 60 if name == "pillar" else 48)
+                (48, 60 if name == "pillar" else 48),
             )
             for name, image in self.images.items()
         }
@@ -167,11 +167,12 @@ class MenuUI:
                 ("quantum_run", "Run on Quantum Computer"),
                 (
                     "next_level",
-                    "Continue to next level"
-                ) if self.game.has_next_level()
+                    "Continue to next level",
+                )
+                if self.game.has_next_level()
                 else (
                     "retry_run",
-                    "Play again"
+                    "Play again",
                 ),
                 ("main", "Return to menu"),
             ]
@@ -199,13 +200,15 @@ class MenuUI:
                     label,
                     hint,
                 )
-                for index, (action, label, hint) in enumerate((
-                    ("setup", "Start run", ""),
-                    ("levels", "Level select", "02"),
-                    ("editor", "Level editor", "03"),
-                    ("settings", "Settings", "04"),
-                    ("help", "How to play", "05"),
-                ))
+                for index, (action, label, hint) in enumerate(
+                    (
+                        ("setup", "Start run", ""),
+                        ("levels", "Level select", "02"),
+                        ("editor", "Level editor", "03"),
+                        ("settings", "Settings", "04"),
+                        ("help", "How to play", "05"),
+                    )
+                )
             ] + [
                 (
                     "quantum_history",
@@ -265,8 +268,7 @@ class MenuUI:
                     title,
                     description,
                 )
-                for index, (key, title, description)
-                in enumerate(options)
+                for index, (key, title, description) in enumerate(options)
             ]
 
             result.append(
@@ -384,8 +386,7 @@ class MenuUI:
                 label,
                 "",
             )
-            for index, (action, label)
-            in enumerate(actions)
+            for index, (action, label) in enumerate(actions)
         ]
 
     def back(self):

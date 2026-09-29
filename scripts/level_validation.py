@@ -9,6 +9,7 @@ arbitrary code via eval()/getattr().
 
 import json
 
+
 REQUIRED_KEYS = ("tiles", "objects", "quantum_objects", "gates", "effects")
 VALID_TILES = {"EMPTY", "START", "END", "WALL"}
 VALID_GATES = {"X", "H", "Z", "RotY", "CNOT", "CHAD", "SWAP"}
@@ -34,9 +35,11 @@ def parse_pos(pos_str):
 
 
 def validate_level(level_data, filename):
-    """Validate parsed level JSON, raising LevelError (naming the field) on any
-    problem. Call this before clean_up() so a bad file never clobbers the
-    currently loaded game.
+    """Validate parsed level JSON.
+
+    Raises LevelError naming the file and problematic field on any problem.
+    Call this before clean_up() so a bad file never clobbers the currently
+    loaded game.
     """
 
     def check_pos(pos_str):
@@ -55,6 +58,7 @@ def validate_level(level_data, filename):
     starts = 0
     ends = 0
 
+    # Validate tiles.
     for pos_str, tile_type in level_data["tiles"].items():
         check_pos(pos_str)
 
@@ -83,14 +87,18 @@ def validate_level(level_data, filename):
         for pos_str in level_data["tiles"]
     }
 
+    # Validate gate/object pickups.
     object_positions = set()
+
     for pos_str, item in level_data["objects"].items():
         check_pos(pos_str)
         parsed = parse_pos(pos_str)
+
         if parsed in object_positions:
             raise LevelError(
                 f"{filename}: duplicate object position {pos_str}"
             )
+
         object_positions.add(parsed)
 
         if item not in VALID_GATES:
@@ -98,7 +106,9 @@ def validate_level(level_data, filename):
                 f"{filename}: unknown item {item!r} at {pos_str}"
             )
 
+    # Validate quantum objects / pillars.
     pillar_positions = set()
+
     for pos_str in level_data["quantum_objects"]:
         check_pos(pos_str)
         parsed = parse_pos(pos_str)
@@ -116,12 +126,14 @@ def validate_level(level_data, filename):
 
         pillar_positions.add(parsed)
 
+    # Every object must occupy an actual tile.
     for position in object_positions | pillar_positions:
         if position not in tile_positions:
             raise LevelError(
                 f"{filename}: object at {position} is not on a tile"
             )
 
+    # Validate hotbar gate counts.
     for gate, count in level_data["gates"].items():
         if gate not in VALID_GATES:
             raise LevelError(
@@ -134,6 +146,7 @@ def validate_level(level_data, filename):
                 "non-negative integer"
             )
 
+    # Validate quantum effects.
     for entry in level_data["effects"]:
         if "position" not in entry or "effect" not in entry:
             raise LevelError(
@@ -181,8 +194,8 @@ def validate_level(level_data, filename):
 def read_level(filename):
     """Read, parse and validate a level file, returning its data.
 
-    The one way to turn a level file into level data, so every caller - the
-    game's loader and the menu's level previews - fails on the same bad file
+    The one way to turn a level file into level data, so every caller — the
+    game's loader and the menu's level previews — fails on the same bad file
     in the same way (LevelError, naming the file) instead of each crashing on
     its own missing key or unreadable path.
     """

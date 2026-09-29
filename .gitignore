@@ -1,14 +1,13 @@
 requirements.in
 QungeonEnv/
 level_editor.py
-__pycache__
+**pycache**
 tests.py
 AUDIT.md
 CLAUDE.md
 .claude/
 .qungeon-settings.json
 .menu-previews/
-<<<<<<< ours
 .qungeon-quantum/
 .vscode/
 .DS_Store
@@ -47,5 +46,3 @@ dist/
 
 .DS_Store
 Thumbs.db
-=======
->>>>>>> theirs
