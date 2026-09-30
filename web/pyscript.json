@@ -1,6 +1,6 @@
 {
   "packages": [
-    "cirq-core==1.7.0"
+    "micropip"
   ],
   "files": {
     "../Qungeon.py": "./Qungeon.py",

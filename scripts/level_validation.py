@@ -45,9 +45,22 @@ def validate_level(level_data, filename):
         except LevelError as err:
             raise LevelError(f"{filename}: {err}")
 
+    if not isinstance(level_data, dict):
+        raise LevelError(f"{filename}: top level must be a JSON object")
+
     missing = [k for k in REQUIRED_KEYS if k not in level_data]
     if missing:
         raise LevelError(f"{filename}: missing required key(s): {', '.join(missing)}")
+
+    # Checked before anything is read out of them, so a file whose "tiles" is a
+    # list still fails as a LevelError instead of an AttributeError that no
+    # caller catches - the level-select previews walk every file in ./levels.
+    for key in ("tiles", "objects", "gates"):
+        if not isinstance(level_data[key], dict):
+            raise LevelError(f"{filename}: {key!r} must be a JSON object")
+    for key in ("quantum_objects", "effects"):
+        if not isinstance(level_data[key], list):
+            raise LevelError(f"{filename}: {key!r} must be a list")
 
     starts = 0
     for pos_str, tile_type in level_data["tiles"].items():
@@ -72,6 +85,8 @@ def validate_level(level_data, filename):
             raise LevelError(f"{filename}: unknown gate {gate!r} in hotbar")
 
     for entry in level_data["effects"]:
+        if not isinstance(entry, dict):
+            raise LevelError(f"{filename}: effect entry must be a JSON object: {entry}")
         if "position" not in entry or "effect" not in entry:
             raise LevelError(f"{filename}: effect entry missing 'position'/'effect': {entry}")
         check_pos(entry["position"])

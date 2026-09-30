@@ -19,6 +19,11 @@ from scripts import level_solver, menus
 @pytest.fixture
 def game():
     game = Game(SimpleNamespace(level=1), settings={}, persist_settings=lambda _: True)
+    # A game sitting on the main menu with level 1 already loaded. Loading is
+    # lazy now (see test_the_menu_runs_before_the_quantum_stack_is_ready), and
+    # these tests are about the menu, not about that.
+    game.start_level(1, "full")
+    game.menu.open("main")
     pygame.event.clear()
     yield game
     pygame.event.clear()
@@ -337,6 +342,13 @@ def test_a_broken_level_file_never_crashes_the_menu(game):
 
 def test_direct_level_launch_preserves_shortcut():
     game = Game(SimpleNamespace(level=5, start_direct=True), settings={})
+    # The shortcut queues behind the loading screen when the quantum stack has
+    # not been imported yet, so drive frames rather than assume either state -
+    # test_a_deep_link_waits_for_the_quantum_stack_too covers the wait itself.
+    for _ in range(3):
+        if game.menu.page == "playing":
+            break
+        game.run_frame()
     assert (game.menu.page, game.run_mode, game.current_level) == ("playing", "single", 5)
 
 
@@ -354,6 +366,104 @@ def test_browser_reports_page_changes_without_repeating_each_frame(game, monkeyp
     monkeypatch.setattr(game, "run_frame", frame)
     asyncio.run(game.run_browser(on_page_change=reported.append))
     assert reported == ["playing", "paused", "help", "paused", "playing"]
+
+
+# --------------------------------------------------------------------------
+# Deferred quantum stack (web/main.py installs cirq after the menu is up)
+# --------------------------------------------------------------------------
+
+def test_the_menu_runs_before_the_quantum_stack_is_ready():
+    """The browser shows the menu while cirq is still downloading.
+
+    Nothing on the menu touches the quantum stack, so a game built while it is
+    still installing must draw and take input; only entering a level waits.
+    """
+    downloaded = False
+    game = Game(SimpleNamespace(level=1), settings={},
+                persist_settings=lambda _: True, gameplay_downloaded=lambda: downloaded)
+
+    assert (game.menu.page, game.hotbar, game.quantum_grid) == ("main", None, None)
+    click(game, "setup")
+    assert game.menu.page == "setup"
+
+    click(game, "start")                   # held, not dropped, not crashed
+    assert (game.menu.page, game.menu.pending) == ("loading", "start")
+    game.run_frame()                       # loading screen stays up meanwhile
+    assert game.menu.page == "loading"
+
+    downloaded = True
+    game.run_frame()
+    assert (game.menu.page, game.menu.pending) == ("playing", None)
+    assert (game.current_level, game.run_mode) == (1, "full")
+    pygame.event.clear()
+
+
+def test_the_loading_screen_is_on_screen_before_the_import_blocks(monkeypatch):
+    """The import must never run in the frame that took the click.
+
+    It blocks for seconds, so the frame loop has to get a chance to put the
+    loading screen on the display - and yield to the browser - in between.
+    Downloading is already finished here: being imported is its own condition.
+    """
+    import Qungeon
+    monkeypatch.setattr(Qungeon, "Hotbar", None)     # as if never imported
+    game = Game(SimpleNamespace(level=1), settings={}, persist_settings=lambda _: True)
+
+    click(game, "levels")
+    click(game, "level:1")
+    assert game.menu.page == "loading"
+    assert game.menu.loading_drawn                   # the frame drew it, and
+    assert Qungeon.Hotbar is None                    # did not import in it
+
+    game.run_frame()
+    assert (game.menu.page, Qungeon.Hotbar is None) == ("playing", False)
+    pygame.event.clear()
+
+
+def test_escape_leaves_the_loading_screen_when_the_stack_never_arrives():
+    """A failed micropip install must not trap the player.
+
+    gameplay_downloaded() then stays False forever, so the held choice is
+    never released; the loading page has no buttons, which leaves Escape as
+    the only way back to the menu.
+    """
+    game = Game(SimpleNamespace(level=1), settings={},
+                persist_settings=lambda _: True, gameplay_downloaded=lambda: False)
+
+    click(game, "levels")
+    click(game, "level:1")
+    assert game.menu.page == "loading"
+
+    key(game, pygame.K_ESCAPE)
+    assert (game.menu.page, game.menu.pending) == ("levels", None)
+    game.run_frame()                       # and it does not resume by itself
+    assert game.menu.page == "levels"
+    pygame.event.clear()
+
+
+def test_a_deep_link_waits_for_the_quantum_stack_too(monkeypatch):
+    """?level=N must queue like a click instead of importing cirq at boot.
+
+    It reaches activate() directly rather than through a frame of input, so
+    it is the case where the import could most easily run before anything has
+    been drawn - leaving the player on a blank canvas through the freeze.
+    """
+    import Qungeon
+    monkeypatch.setattr(Qungeon, "Hotbar", None)     # as if never imported
+    game = Game(SimpleNamespace(level=2, start_direct=True), settings={},
+                persist_settings=lambda _: True)
+    drawn = []
+    monkeypatch.setattr(game.menu, "draw", lambda: drawn.append(game.menu.page))
+
+    assert (game.menu.page, game.menu.pending) == ("loading", "level:2")
+
+    game.run_frame()                                 # draws, does not import
+    assert (drawn, Qungeon.Hotbar) == (["loading"], None)
+
+    game.menu.loading_drawn = True                   # the stubbed draw cannot
+    game.run_frame()
+    assert (game.menu.page, game.current_level, game.run_mode) == ("playing", 2, "single")
+    pygame.event.clear()
 
 
 # --------------------------------------------------------------------------

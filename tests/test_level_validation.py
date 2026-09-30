@@ -53,9 +53,35 @@ def test_real_levels_pass():
             validate_level(json.load(f), path)  # must not raise
 
 
+def test_wrong_container_types_raise_levelerror():
+    """Level select previews every file in ./levels and catches only LevelError.
+
+    A file whose "tiles" is a list used to raise AttributeError straight
+    through that, taking the whole menu down instead of showing a blank card.
+    """
+    good = _load("missing_key.json") | {
+        "tiles": {"(0,0)": "START", "(1,0)": "END"},
+        "objects": {}, "gates": {}, "quantum_objects": [], "effects": [],
+    }
+    for key, bad in (("tiles", []), ("objects", []), ("gates", []),
+                     ("quantum_objects", {}), ("effects", {}),
+                     ("effects", ["not an object"])):
+        try:
+            validate_level(good | {key: bad}, "bad.json")
+        except LevelError:
+            continue
+        raise AssertionError(f"{key}={bad!r} should have raised LevelError")
+    try:
+        validate_level([], "bad.json")
+    except LevelError:
+        return
+    raise AssertionError("a non-object top level should have raised LevelError")
+
+
 if __name__ == "__main__":
     test_parse_pos_ok()
     test_parse_pos_rejects_bad()
     test_malformed_fixtures_raise()
+    test_wrong_container_types_raise_levelerror()
     test_real_levels_pass()
     print("level validation checks passed")

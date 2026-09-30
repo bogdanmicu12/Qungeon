@@ -3,21 +3,44 @@ import asyncio
 import pygame
 import argparse
 
-import unitary.alpha as alpha
 from pygame.locals import (
     KEYDOWN, MOUSEBUTTONDOWN, MOUSEBUTTONUP, QUIT,
     K_ESCAPE, K_a, K_d, K_h, K_q, K_r, K_s, K_w, K_1, K_2, K_3, K_4, K_5, K_6, K_7, K_8, K_9,
 )
 from scripts.grouping_system import GroupingSystem
-from scripts.user_interface import Hotbar
-from scripts.game_objects import (
-    BLOCK_SIZE, LootableObject, Player, QuantumObject, Tile, TileType, pillar_image,
-)
 from scripts.common_functions import update_mouse_drag
 from scripts.level_validation import read_level, parse_pos, LevelError
 from scripts.menus import ACCENT, MenuUI, BG, load_settings, normalize_settings, save_settings
-from scripts import level_solver
+# quantum_run keeps cirq behind function-level imports, so it is safe up here.
 from scripts.quantum_run import QuantumRun, capture_circuit
+
+
+# Bound by load_gameplay(). Everything that reaches cirq - the quantum stack
+# itself, the objects built on it, and the solver - stays unimported until a
+# level is actually loaded. In the browser build cirq and its dependencies are
+# ~37 MB, and the menu needs none of it; see web/main.py, which installs them
+# in the background while the menu is already on screen.
+alpha = None
+level_solver = None
+Hotbar = None
+BLOCK_SIZE = None
+LootableObject = Player = QuantumObject = Tile = TileType = None
+pillar_image = None
+
+
+def load_gameplay():
+    """Import the quantum stack. Idempotent; the first call does the work."""
+    global alpha, level_solver, Hotbar, BLOCK_SIZE
+    global LootableObject, Player, QuantumObject, Tile, TileType, pillar_image
+    if Hotbar is not None:
+        return
+    import unitary.alpha as alpha
+    from scripts import level_solver
+    from scripts.game_objects import (
+        BLOCK_SIZE, LootableObject, Player, QuantumObject, Tile, TileType, pillar_image,
+    )
+    # Bound last, so the guard above is only satisfied once every name is ready.
+    from scripts.user_interface import Hotbar
 
 
 FPS = 60
@@ -37,15 +60,22 @@ STUCK_DELAY_MS = 1800
 class Game:
     """Level state, input and the game loop."""
 
-    def __init__(self, args, settings=None, persist_settings=None):
-        """Initializes the game, sets up the starting level, player, and game display."""
+    def __init__(self, args, settings=None, persist_settings=None, gameplay_downloaded=None):
+        """Initializes the game, sets up the menu, and game display.
+
+        No level is loaded here: the menu is the first thing the player sees
+        and needs nothing from the quantum stack, so loading is left to
+        start_level. `gameplay_downloaded` lets the browser build report
+        whether that stack has arrived yet; by default it always has.
+        """
         pygame.init()
         self.screen = pygame.display.set_mode((800, 600))
         self.tiles = {}
         self.objects = {}
 
         self.grouping_system = GroupingSystem()
-        self.quantum_grid = alpha.QuantumWorld()
+        self.quantum_grid = None
+        self.gameplay_downloaded = gameplay_downloaded or (lambda: True)
         self.object_sprites = pygame.sprite.Group()
         self.tile_sprites = pygame.sprite.Group()
         self.settings = load_settings() if settings is None else normalize_settings(settings)
@@ -69,14 +99,23 @@ class Game:
         self.quantum_notice_until = 0
         self.gate_help_open = False
         self.player = None
-        self.hotbar = Hotbar()
+        self.hotbar = None
         pygame.display.set_caption(GAME_TITLE)
-        self.load_level(f"./levels/{self.current_level}.json")
         self.menu = MenuUI(self)
         if getattr(args, "start_direct", False):
-            self.run_mode = "single"
-            self.menu.open("playing")
+            # The same route the level-select buttons take, so a deep link
+            # waits for the quantum stack exactly as a click would.
+            self.menu.activate(f"level:{self.current_level}")
     
+    def gameplay_ready(self):
+        """True when a level can start without the player waiting.
+
+        Importing the quantum stack costs several seconds of blocked main
+        thread, so "downloaded" is not the same as "ready": until it has also
+        been imported the menu owes the player a loading screen first.
+        """
+        return Hotbar is not None and self.gameplay_downloaded()
+
     def load_level(self, filename):
         """Loads and parses the game level from a JSON file.
 
@@ -84,6 +123,10 @@ class Game:
         destroys the currently loaded game. Raises LevelError on bad data.
         """
         level_data = read_level(filename)
+        load_gameplay()
+        if self.hotbar is None:
+            self.hotbar = Hotbar()
+            self.quantum_grid = alpha.QuantumWorld()
         self.clean_up()
 
         for pos_str, tile_type_str in level_data["tiles"].items():
@@ -418,6 +461,9 @@ class Game:
             self.quantum_run.update()
         self.menu.quantum.update()
         was_playing = self.menu.page == "playing"
+        # Before input, so a level choice held over from an earlier frame is
+        # released while its loading screen is the thing on the display.
+        self.menu.update()
         self.handle_events()
         if not self.running:
             return

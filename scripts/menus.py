@@ -69,6 +69,9 @@ class MenuUI:
         self.return_page = "main"   # where Help/Settings go back to
         self.focus = 0
         self.pressed = None
+        self.pending = None      # level choice waiting on the quantum stack
+        self.loading_from = "main"   # where to go back to if it will not load
+        self.loading_drawn = False   # the screen the import is allowed to block behind
         self.previews = {}
         self.settings_saved = True
         self.quantum = QuantumMenu(self)
@@ -165,17 +168,57 @@ class MenuUI:
         return [(action, pygame.Rect(244, top + index * 53, 312, 42), label, "")
                 for index, (action, label) in enumerate(actions)]
 
+    def update(self):
+        """Start the level the player already chose, once the code is here.
+
+        The import blocks for seconds, so it may only start once the loading
+        screen has actually been drawn - whether the choice came from a click
+        or straight from a ?level= link. Running before this frame's input
+        also means clicks that piled up during the freeze are discarded rather
+        than landing in the level.
+        """
+        if self.pending is None or not self.loading_drawn:
+            return
+        if not self.game.gameplay_downloaded():
+            return
+        action, self.pending = self.pending, None
+        self.activate(action, released=True)   # imports; blocks for seconds
+        if self.page == "loading":
+            self.open(self.loading_from)       # the level refused to load
+        # Only input piled up behind the freeze is dropped: clearing the whole
+        # queue would swallow the QUIT of a player who closed the window while
+        # it was blocked, and the window would refuse to shut.
+        pygame.event.clear((pygame.MOUSEBUTTONDOWN, pygame.MOUSEBUTTONUP,
+                            pygame.MOUSEMOTION, pygame.KEYDOWN, pygame.KEYUP))
+
     def back(self):
         if self.page in ("quantum", "quantum_history", "quantum_map", "quantum_circuit"):
             self.quantum.back()
         elif self.page == "paused":
             self.open("playing")
+        elif self.page == "loading":
+            # The stack may never arrive - a failed micropip install in the
+            # browser leaves gameplay_downloaded() False forever - so the held
+            # choice is dropped rather than stranding the player here.
+            self.pending = None
+            self.open(self.loading_from)
         elif self.page in ("help", "settings"):
             self.open(self.return_page)
         elif self.page in ("setup", "levels"):
             self.open("main")
 
-    def activate(self, action):
+    def activate(self, action, released=False):
+        if not released and (action.startswith("level:") or action == "start"):
+            if not self.game.gameplay_ready():
+                # Importing the quantum stack blocks for several seconds, so
+                # the choice is held and a loading screen goes up first. The
+                # frame loop yields between frames, which is what lets that
+                # screen actually reach the display before update() blocks.
+                self.pending = action
+                self.loading_from = self.page
+                self.loading_drawn = False
+                self.open("loading")
+                return
         if action.startswith("quantum"):
             self.quantum.activate(action)
         elif action == "next_level":
@@ -210,6 +253,11 @@ class MenuUI:
             self.open(action)
 
     def handle_event(self, event):
+        if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
+            # Ahead of both checks below: the loading page has no buttons, and
+            # Escape is the only way off it if the quantum stack never arrives.
+            self.back()
+            return
         if self.quantum.handle_event(event):
             self.pressed = None
             return
@@ -218,9 +266,7 @@ class MenuUI:
             return
         self.focus = min(self.focus, len(buttons) - 1)
         if event.type == pygame.KEYDOWN:
-            if event.key == pygame.K_ESCAPE:
-                self.back()
-            elif event.key in (pygame.K_TAB, pygame.K_DOWN, pygame.K_s, pygame.K_d, pygame.K_RIGHT):
+            if event.key in (pygame.K_TAB, pygame.K_DOWN, pygame.K_s, pygame.K_d, pygame.K_RIGHT):
                 step = -1 if event.key == pygame.K_TAB and getattr(event, "mod", 0) & pygame.KMOD_SHIFT else 1
                 self.focus = (self.focus + step) % len(buttons)
             elif event.key in (pygame.K_UP, pygame.K_w, pygame.K_a, pygame.K_LEFT):
@@ -415,6 +461,7 @@ class MenuUI:
                     "settings": ("Settings", ""),
                     "levels": ("Choose a level", "All levels are available."),
                     "help": ("How to play", ""),
+                    "loading": ("Entering the dungeon", "Starting the quantum engine. This takes a moment."),
                 }[self.page]
                 self.text(heading, 60, 112, 49)
                 self.text(subheading, 62, 164, 24, MUTED)
@@ -423,6 +470,8 @@ class MenuUI:
         for index, button in enumerate(self.buttons()):
             self.draw_button(button, index)
         pygame.display.update()
+        if self.page == "loading":
+            self.loading_drawn = True
 
     def draw_hud(self):
         self.draw_header()

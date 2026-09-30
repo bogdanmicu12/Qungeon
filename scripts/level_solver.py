@@ -477,7 +477,10 @@ def _canonical_vector(vector):
     if len(significant):
         reference = vector[significant[0]]
         vector = vector * (np.abs(reference) / reference)
-    return np.round(vector, _HASH_DECIMALS).tobytes()
+    # `+ 0.0` folds -0.0 onto +0.0. They compare equal but their bytes differ,
+    # so without it a rounded-away negative amplitude makes two identical
+    # states hash apart and the search re-explores them.
+    return (np.round(vector, _HASH_DECIMALS) + 0.0).tobytes()
 
 
 def _key(state, region):
