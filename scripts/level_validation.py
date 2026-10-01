@@ -77,3 +77,6 @@ def validate_level(level_data, filename):
             raise LevelError(f"{filename}: unknown effect {entry['effect']!r} at {entry['position']}")
         if "target" in entry:
             check_pos(entry["target"])
+
+    from scripts.tutorial import validate_tutorial  # local import avoids a circular import
+    validate_tutorial(level_data.get("tutorial"), filename)

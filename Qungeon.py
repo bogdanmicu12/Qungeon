@@ -4,6 +4,7 @@ import pygame
 import argparse
 import json
 
+
 import unitary.alpha as alpha
 from pygame.locals import (
     KEYDOWN, MOUSEBUTTONDOWN, MOUSEBUTTONUP, QUIT,
@@ -17,6 +18,7 @@ from scripts.game_objects import (
 from scripts.common_functions import handle_slot_mouse_down, hover, update_mouse_drag
 from scripts.level_validation import validate_level, parse_pos, LevelError
 from scripts.menus import MenuUI, BG, load_settings, normalize_settings, save_settings
+from scripts.tutorial import TutorialController
 
 
 FPS = 60
@@ -25,6 +27,7 @@ HOP_DELAY_MS = 10
 SCREEN_BG_COLOR = BG
 GAME_TITLE = 'Qungeon'
 DEFAULT_START_LEVEL = 1
+TUTORIAL_LEVELS = ["tutorial_1", "tutorial_2"]
 
 class Game:
     """Level state, input and the game loop."""
@@ -54,6 +57,9 @@ class Game:
         self.current_level = args.level
         self.player = None
         self.hotbar = Hotbar()
+        self.tutorial = TutorialController()
+        self.tutorial_step = 0
+        self.pending_advance = False
         pygame.display.set_caption(GAME_TITLE)
         self.load_level(f"./levels/{self.current_level}.json")
         self.menu = MenuUI(self)
@@ -108,6 +114,8 @@ class Game:
                 effect = [effect, [target_x, target_y]]
 
             self.objects[str(x) + "," + str(y)].apply_effect(self, effect)
+
+        self.tutorial.load(level_data)
                 
     def clean_up(self):
         """Resets and clears all game objects, tiles, and hotbar slots when loading a new level."""
@@ -140,8 +148,13 @@ class Game:
         if progress == 1:
             self.player.update_position(*end)
             self.hop = None
+            self.tutorial.on_enter(end)
             if self.tiles[end].type == TileType.END:
-                self.advance_level()
+                self.tutorial.on_win()
+                if self.tutorial.active:
+                    self.pending_advance = True   # advance after the popup is dismissed
+                else:
+                    self.advance_level()
 
     def update_position(self, direction):
         """Updates the player's position based on the input direction key and handles level progression."""
@@ -176,6 +189,14 @@ class Game:
 
     def advance_level(self):
         """Finish a single puzzle or advance through the full run without exiting."""
+        if self.run_mode == "tutorial":
+            next_step = self.tutorial_step + 1
+            if next_step < len(TUTORIAL_LEVELS):
+                self.start_tutorial(next_step)
+            else:
+                self.menu.open("complete")
+            return
+
         index = self.available_levels.index(self.current_level)
         if self.run_mode == "full" and index + 1 < len(self.available_levels):
             self.start_level(self.available_levels[index + 1], "full")
@@ -188,8 +209,18 @@ class Game:
         self.run_mode = mode
         self.menu.open("playing")
 
+    def start_tutorial(self, step=0):
+        self.tutorial_step = step
+        self.run_mode = "tutorial"
+        self.current_level = -(step + 1)   # negative sentinel: -1, -2, ...
+        self.load_level(f"./levels/{TUTORIAL_LEVELS[step]}.json")
+        self.menu.open("playing")
+
     def restart_level(self):
-        self.start_level(self.current_level, self.run_mode)
+        if self.run_mode == "tutorial":
+            self.start_tutorial(self.tutorial_step)
+        else:
+            self.start_level(self.current_level, self.run_mode)
 
     def return_to_menu(self):
         self.menu.open("main")
@@ -251,7 +282,7 @@ class Game:
                                 obj.apply_effect(self, [alpha.Flip(), other_obj.position])
                             elif obj.control == 'CHAD':
                                 obj.apply_effect(self, [alpha.Superposition(), other_obj.position])
-
+                                self.tutorial.on_apply(obj.position)
                             return obj.control
 
                 return False
@@ -337,7 +368,9 @@ class Game:
                     self.menu.open("paused")
                 return
             previous_page = self.menu.page
-            if self.menu.page != "playing":
+            if self.menu.page == "playing" and self.tutorial.active:   # NEW
+                self.handle_tutorial_event(event)                      # NEW
+            elif self.menu.page != "playing":                          # was "if"
                 self.menu.handle_event(event)
             elif event.type == KEYDOWN:
                 self.handle_keydown(event)
@@ -367,6 +400,20 @@ class Game:
                 self.restart_level()
             except LevelError as err:
                 print(f"Could not restart level: {err}")
+
+    def handle_tutorial_event(self, event):
+        if event.type == KEYDOWN and event.key == K_ESCAPE:
+            self.menu.open("paused")
+        elif event.type == KEYDOWN and event.key in (pygame.K_RETURN, pygame.K_SPACE):
+            self.advance_tutorial_popup()
+        elif event.type == MOUSEBUTTONDOWN and event.button == 1:
+            self.advance_tutorial_popup()
+
+    def advance_tutorial_popup(self):
+        self.tutorial.dismiss()
+        if not self.tutorial.active and self.pending_advance:
+            self.pending_advance = False
+            self.advance_level()
 
 
 if __name__ == "__main__":

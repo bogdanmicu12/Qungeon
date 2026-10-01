@@ -100,6 +100,7 @@ class Hotbar:
                         return
                     else:
                         obj.apply_effect(game, slot.effect)
+                        game.tutorial.on_apply(obj.position)
                     self.remove_by_key(key)
                     break
 

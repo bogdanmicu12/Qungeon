@@ -110,6 +110,7 @@ class LootableObject(BaseObject):
     def function(self, game, x, y):
         """Adds the item to the player's hotbar and removes the object from the game. Called when player moves to tile object is in."""
         game.hotbar.add_item(self.item, 1)
+        game.tutorial.on_pickup(self.item)
         self.kill()
         del game.objects[str(x) + "," + str(y)]
         return True

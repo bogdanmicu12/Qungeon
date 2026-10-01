@@ -111,7 +111,7 @@ class MenuUI:
                     ("setup", "Start run", ""),
                     ("levels", "Level select", "02"),
                     ("settings", "Settings", "03"),
-                    ("help", "How to play", "04"),
+                    ("tutorial", "Tutorial", "04"),
                 ))
             ]
         if self.page in ("settings", "setup"):
@@ -162,6 +162,8 @@ class MenuUI:
             self.game.start_level(int(action.split(":", 1)[1]), "single")
         elif action == "start":
             self.game.start_level(self.game.available_levels[0], "full")
+        elif action == "tutorial":
+            self.game.start_tutorial()
         elif action == "retry":
             self.game.restart_level()
         elif action == "retry_run":
@@ -321,7 +323,8 @@ class MenuUI:
             self.text(symbol, 400, 121, 31, color, True)
             title = {"paused": "Paused", "failed": "Run failed", "complete": "Run complete" if self.game.run_mode == "full" else "Level complete"}[self.page]
             self.text(title, 400, 170, 46, INK, True)
-            self.text(f"LEVEL {self.game.current_level:02}   /   {'FULL RUN' if self.game.run_mode == 'full' else 'SINGLE LEVEL'}", 400, 220, 19, MUTED, True)
+            run_label = "TUTORIAL RUN" if self.game.run_mode == "tutorial" else "FULL RUN" if self.game.run_mode == "full" else "SINGLE LEVEL"
+            self.text(f"{self.level_label()}   /   {run_label}", 400, 220, 19, MUTED, True)
             if self.page != "paused":
                 message = "The level can no longer be completed." if self.page == "failed" else "All levels completed." if self.game.run_mode == "full" else "Level completed."
                 self.text(message, 400, 268, 23, MUTED, True)
@@ -353,15 +356,63 @@ class MenuUI:
             self.draw_button(button, index)
         pygame.display.update()
 
+    def level_label(self):
+        """Tutorial levels use negative sentinel ids (-1, -2, ...) so they
+        never collide with the numbered .json levels in ./levels; display
+        those as "TUTORIAL n" instead of "LEVEL nn"."""
+        level = self.game.current_level
+        if level < 0:
+            return f"TUTORIAL {-level}"
+        return f"LEVEL {level:02}"
+
     def draw_hud(self):
         self.draw_header()
-        self.text(f"LEVEL {self.game.current_level:02}", 362, 39, 22, INK)
+        self.text(self.level_label(), 362, 39, 22, INK)
         pygame.draw.rect(self.game.screen, PANEL, (652, 29, 108, 35))
         pygame.draw.rect(self.game.screen, EDGE, (652, 29, 108, 35), 1)
         self.text("ESC  Pause", 665, 39, 20, MUTED)
         self.text("WASD  Move", 40, 579, 18, MUTED)
         self.text("Drag gates onto nearby pillars", 400, 579, 18, MUTED, True)
         self.text("R  Restart", 692, 579, 18, MUTED)
+        tutorial = getattr(self.game, "tutorial", None)
+        if tutorial and tutorial.active:
+            self.draw_tutorial_popup(tutorial.current)
+
+    def wrap_text(self, text, max_width, size):
+        """Greedy word-wrap; returns a list of lines that each fit max_width px."""
+        words = text.split(" ")
+        lines, line = [], ""
+        for word in words:
+            candidate = f"{line} {word}".strip()
+            if font(size).size(candidate)[0] > max_width and line:
+                lines.append(line)
+                line = word
+            else:
+                line = candidate
+        if line:
+            lines.append(line)
+        return lines
+
+    def draw_tutorial_popup(self, text):
+        """Draws a bottom-anchored dialogue box for the current tutorial step.
+
+        Purely a rendering call — call it every frame the popup should be on
+        screen (see draw_hud above). Input handling (advancing/dismissing on
+        key or click) is the caller's responsibility: check
+        game.tutorial.active and route the dismiss key/click to
+        game.tutorial.dismiss() *before* normal gameplay input, so the popup
+        blocks movement while it's up.
+        """
+        screen = self.game.screen
+        box = pygame.Rect(60, 470, 680, 96)
+        pygame.draw.rect(screen, (8, 10, 17), box.move(0, 4))
+        pygame.draw.rect(screen, PANEL, box)
+        pygame.draw.rect(screen, ACCENT, box, 2)
+        pygame.draw.rect(screen, ACCENT, (box.x, box.y, box.width, 22))
+        self.text("TUTORIAL", box.x + 10, box.y + 3, 15, BG)
+        for i, line in enumerate(self.wrap_text(text, box.width - 24, 19)):
+            self.text(line, box.x + 12, box.y + 30 + i * 24, 19, INK)
+        self.text("ENTER / Click to continue", box.x + 12, box.bottom - 22, 16, MUTED)
 
     def draw_panel(self, rect, title=None, border_color=EDGE):
         screen = self.game.screen
@@ -434,4 +485,3 @@ class MenuUI:
                 gy = p3.y + 28 + i * 19
                 self.text(f"• {gate}:", p3.x + 12, gy, 16, ACCENT)
                 self.text(desc, p3.x + 88, gy, 15, INK)
-                
