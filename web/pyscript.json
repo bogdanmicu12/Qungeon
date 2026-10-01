@@ -1,8 +1,9 @@
 {
   "packages": [
-    "cirq-core==1.7.0"
+    "micropip"
   ],
   "files": {
+    "../Qungeon.py": "./Qungeon.py",
     "../assets/DejaVuSans.ttf": "./assets/DejaVuSans.ttf",
     "../assets/box.png": "./assets/box.png",
     "../assets/chad-gate.png": "./assets/chad-gate.png",
@@ -24,13 +25,18 @@
     "../levels/6.json": "./levels/6.json",
     "../levels/7.json": "./levels/7.json",
     "../levels/8.json": "./levels/8.json",
-    "../Qungeon.py": "./Qungeon.py",
     "../scripts/common_functions.py": "./scripts/common_functions.py",
     "../scripts/flip_phase.py": "./scripts/flip_phase.py",
     "../scripts/game_objects.py": "./scripts/game_objects.py",
     "../scripts/grouping_system.py": "./scripts/grouping_system.py",
+    "../scripts/level_solver.py": "./scripts/level_solver.py",
     "../scripts/level_validation.py": "./scripts/level_validation.py",
     "../scripts/menus.py": "./scripts/menus.py",
+    "../scripts/quantum_run.py": "./scripts/quantum_run.py",
+    "../scripts/quantum_menu.py": "./scripts/quantum_menu.py",
+    "../scripts/pillar_map.py": "./scripts/pillar_map.py",
+    "../scripts/circuit_view.py": "./scripts/circuit_view.py",
+    "../scripts/scroll_view.py": "./scripts/scroll_view.py",
     "../scripts/user_interface.py": "./scripts/user_interface.py",
     "./unitary/__init__.py": "./unitary/__init__.py",
     "./unitary/alpha/__init__.py": "./unitary/alpha/__init__.py",

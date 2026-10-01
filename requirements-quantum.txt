@@ -1,0 +1,4 @@
+# Optional host-side integration. Install alongside requirements.txt.
+# These versions share the same compute API and Qiskit requirements.
+quantuminspire==3.5.3
+qiskit-quantuminspire==0.17.1

@@ -1,0 +1,3 @@
+[submodule "src/unitary"]
+	path = src/unitary
+	url = https://github.com/quantumlib/unitary.git

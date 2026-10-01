@@ -1,0 +1,24 @@
+{
+  "_comment": "Near pillar (4,4) and far pillar (6,4) both start |1>. The far one is never within reach of a walkable tile until the near one is cleared, and no X remains by then; the only solution is CNOT with the near pillar as control and the far one as a remote target, then X on the near pillar.",
+  "tiles": {
+    "(2,4)": "START",
+    "(3,4)": "EMPTY",
+    "(4,4)": "EMPTY",
+    "(5,4)": "EMPTY",
+    "(6,4)": "EMPTY",
+    "(7,4)": "END",
+    "(2,3)": "WALL",
+    "(3,3)": "WALL",
+    "(4,3)": "WALL",
+    "(5,3)": "WALL",
+    "(6,3)": "WALL",
+    "(7,3)": "WALL"
+  },
+  "objects": {},
+  "quantum_objects": ["(4,4)", "(6,4)"],
+  "gates": { "X": 1, "CNOT": 1 },
+  "effects": [
+    { "position": "(4,4)", "effect": "Flip" },
+    { "position": "(6,4)", "effect": "Flip" }
+  ]
+}

@@ -7,6 +7,8 @@ and so a malformed file fails fast with a clear message instead of executing
 arbitrary code via eval()/getattr().
 """
 
+import json
+
 REQUIRED_KEYS = ("tiles", "objects", "quantum_objects", "gates", "effects")
 VALID_TILES = {"EMPTY", "START", "END", "WALL"}
 VALID_GATES = {"X", "H", "Z", "RotY", "CNOT", "CHAD"}
@@ -43,9 +45,22 @@ def validate_level(level_data, filename):
         except LevelError as err:
             raise LevelError(f"{filename}: {err}")
 
+    if not isinstance(level_data, dict):
+        raise LevelError(f"{filename}: top level must be a JSON object")
+
     missing = [k for k in REQUIRED_KEYS if k not in level_data]
     if missing:
         raise LevelError(f"{filename}: missing required key(s): {', '.join(missing)}")
+
+    # Checked before anything is read out of them, so a file whose "tiles" is a
+    # list still fails as a LevelError instead of an AttributeError that no
+    # caller catches - the level-select previews walk every file in ./levels.
+    for key in ("tiles", "objects", "gates"):
+        if not isinstance(level_data[key], dict):
+            raise LevelError(f"{filename}: {key!r} must be a JSON object")
+    for key in ("quantum_objects", "effects"):
+        if not isinstance(level_data[key], list):
+            raise LevelError(f"{filename}: {key!r} must be a list")
 
     starts = 0
     for pos_str, tile_type in level_data["tiles"].items():
@@ -70,6 +85,8 @@ def validate_level(level_data, filename):
             raise LevelError(f"{filename}: unknown gate {gate!r} in hotbar")
 
     for entry in level_data["effects"]:
+        if not isinstance(entry, dict):
+            raise LevelError(f"{filename}: effect entry must be a JSON object: {entry}")
         if "position" not in entry or "effect" not in entry:
             raise LevelError(f"{filename}: effect entry missing 'position'/'effect': {entry}")
         check_pos(entry["position"])
@@ -80,3 +97,23 @@ def validate_level(level_data, filename):
 
     from scripts.tutorial import validate_tutorial  # local import avoids a circular import
     validate_tutorial(level_data.get("tutorial"), filename)
+
+
+def read_level(filename):
+    """Read, parse and validate a level file, returning its data.
+
+    The one way to turn a level file into level data, so every caller - the
+    game's loader and the menu's level previews - fails on the same bad file
+    in the same way (LevelError, naming the file) instead of each crashing on
+    its own missing key or unreadable path.
+    """
+    try:
+        with open(filename, "r", encoding="utf-8") as file:
+            level_data = json.load(file)
+    except OSError as err:
+        raise LevelError(f"{filename}: cannot be read: {err}")
+    except ValueError as err:
+        raise LevelError(f"{filename}: is not valid JSON: {err}")
+
+    validate_level(level_data, filename)
+    return level_data

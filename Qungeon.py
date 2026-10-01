@@ -2,23 +2,47 @@ import os
 import asyncio
 import pygame
 import argparse
-import json
 
-
-import unitary.alpha as alpha
 from pygame.locals import (
     KEYDOWN, MOUSEBUTTONDOWN, MOUSEBUTTONUP, QUIT,
-    K_ESCAPE, K_a, K_d, K_q, K_r, K_s, K_w,
+    K_ESCAPE, K_a, K_d, K_h, K_q, K_r, K_s, K_w, K_1, K_2, K_3, K_4, K_5, K_6, K_7, K_8, K_9,
 )
 from scripts.grouping_system import GroupingSystem
-from scripts.user_interface import Hotbar
-from scripts.game_objects import (
-    BLOCK_SIZE, LootableObject, Player, QuantumObject, Tile, TileType, pillar_image,
-)
-from scripts.common_functions import handle_slot_mouse_down, hover, update_mouse_drag
-from scripts.level_validation import validate_level, parse_pos, LevelError
-from scripts.menus import MenuUI, BG, load_settings, normalize_settings, save_settings
+from scripts.common_functions import update_mouse_drag
+from scripts.level_validation import read_level, parse_pos, LevelError
+from scripts.menus import ACCENT, MenuUI, BG, load_settings, normalize_settings, save_settings
+# quantum_run keeps cirq behind function-level imports, so it is safe up here.
+from scripts.quantum_run import QuantumRun, capture_circuit
+# tutorial.py only depends on level_validation, not cirq, so it's safe up here too.
 from scripts.tutorial import TutorialController
+
+
+# Bound by load_gameplay(). Everything that reaches cirq - the quantum stack
+# itself, the objects built on it, and the solver - stays unimported until a
+# level is actually loaded. In the browser build cirq and its dependencies are
+# ~37 MB, and the menu needs none of it; see web/main.py, which installs them
+# in the background while the menu is already on screen.
+alpha = None
+level_solver = None
+Hotbar = None
+BLOCK_SIZE = None
+LootableObject = Player = QuantumObject = Tile = TileType = None
+pillar_image = None
+
+
+def load_gameplay():
+    """Import the quantum stack. Idempotent; the first call does the work."""
+    global alpha, level_solver, Hotbar, BLOCK_SIZE
+    global LootableObject, Player, QuantumObject, Tile, TileType, pillar_image
+    if Hotbar is not None:
+        return
+    import unitary.alpha as alpha
+    from scripts import level_solver
+    from scripts.game_objects import (
+        BLOCK_SIZE, LootableObject, Player, QuantumObject, Tile, TileType, pillar_image,
+    )
+    # Bound last, so the guard above is only satisfied once every name is ready.
+    from scripts.user_interface import Hotbar
 
 
 FPS = 60
@@ -29,18 +53,32 @@ GAME_TITLE = 'Qungeon'
 DEFAULT_START_LEVEL = 1
 TUTORIAL_LEVELS = ["tutorial_1", "tutorial_2"]
 
+# How long the player keeps playing after the solver proves the level is lost,
+# before the failure screen appears. Being told a move was wrong the instant it
+# lands is intrusive and robs the player of working it out; this leaves room to
+# try the move that no longer works and feel the wall first, without a long
+# stretch of pointlessly wandering a dead level.
+STUCK_DELAY_MS = 1800
+
 class Game:
     """Level state, input and the game loop."""
 
-    def __init__(self, args, settings=None, persist_settings=None):
-        """Initializes the game, sets up the starting level, player, and game display."""
+    def __init__(self, args, settings=None, persist_settings=None, gameplay_downloaded=None):
+        """Initializes the game, sets up the menu, and game display.
+
+        No level is loaded here: the menu is the first thing the player sees
+        and needs nothing from the quantum stack, so loading is left to
+        start_level. `gameplay_downloaded` lets the browser build report
+        whether that stack has arrived yet; by default it always has.
+        """
         pygame.init()
         self.screen = pygame.display.set_mode((800, 600))
         self.tiles = {}
         self.objects = {}
 
         self.grouping_system = GroupingSystem()
-        self.quantum_grid = alpha.QuantumWorld()
+        self.quantum_grid = None
+        self.gameplay_downloaded = gameplay_downloaded or (lambda: True)
         self.object_sprites = pygame.sprite.Group()
         self.tile_sprites = pygame.sprite.Group()
         self.settings = load_settings() if settings is None else normalize_settings(settings)
@@ -53,30 +91,48 @@ class Game:
         self.run_mode = "full"
         self.last_tick = pygame.time.get_ticks()
         self.correlation_elapsed = 0
+        self.stuck_elapsed = None
+        self.resources = None
         self.hop = None
         self.current_level = args.level
+        self.quantum_run = None
+        self.background_quantum_runs = []
+        self.quantum_notice = ""
+        self.quantum_notice_color = ACCENT
+        self.quantum_notice_until = 0
+        self.gate_help_open = False
         self.player = None
-        self.hotbar = Hotbar()
+        self.hotbar = None
         self.tutorial = TutorialController()
         self.tutorial_step = 0
         self.pending_advance = False
         pygame.display.set_caption(GAME_TITLE)
-        self.load_level(f"./levels/{self.current_level}.json")
         self.menu = MenuUI(self)
         if getattr(args, "start_direct", False):
-            self.run_mode = "single"
-            self.menu.open("playing")
+            # The same route the level-select buttons take, so a deep link
+            # waits for the quantum stack exactly as a click would.
+            self.menu.activate(f"level:{self.current_level}")
     
+    def gameplay_ready(self):
+        """True when a level can start without the player waiting.
+
+        Importing the quantum stack costs several seconds of blocked main
+        thread, so "downloaded" is not the same as "ready": until it has also
+        been imported the menu owes the player a loading screen first.
+        """
+        return Hotbar is not None and self.gameplay_downloaded()
+
     def load_level(self, filename):
         """Loads and parses the game level from a JSON file.
 
         Validates the file before clean_up() so a malformed level never
         destroys the currently loaded game. Raises LevelError on bad data.
         """
-        with open(filename, "r") as file:
-            level_data = json.load(file)
-
-        validate_level(level_data, filename)
+        level_data = read_level(filename)
+        load_gameplay()
+        if self.hotbar is None:
+            self.hotbar = Hotbar()
+            self.quantum_grid = alpha.QuantumWorld()
         self.clean_up()
 
         for pos_str, tile_type_str in level_data["tiles"].items():
@@ -116,20 +172,38 @@ class Game:
             self.objects[str(x) + "," + str(y)].apply_effect(self, effect)
 
         self.tutorial.load(level_data)
-                
+        self.resources = self.resource_signature()
+
+    def resource_signature(self):
+        """Everything the player can still spend, as one comparable value.
+
+        A level can only become unwinnable when something is consumed: a gate
+        is spent or a loot box is taken. Comparing this once per frame keeps
+        that trigger in one place, instead of scattering a call through every
+        code path that spends something - including ones added later.
+        """
+        return (
+            sum(slot.count for slot in self.hotbar.slots.values()),
+            len(self.objects),
+        )
+
     def clean_up(self):
         """Resets and clears all game objects, tiles, and hotbar slots when loading a new level."""
+        self.clear_quantum_notice()
+        self.gate_help_open = False
         self.tiles.clear()
         self.tile_sprites.empty()
         self.objects.clear()
         self.object_sprites.empty()
         self.hotbar.slots.clear()
         self.hotbar.sprites.empty()
+        self.hotbar.selected_key = None
         self.quantum_grid.clear()
         self.grouping_system.groups.clear()
         self.grouping_system.count = 0
         self.hop = None
         self.correlation_elapsed = 0
+        self.stuck_elapsed = None
 
     def hop_animation(self, start_pos, end_pos):
         """Begin a frame-driven hop, so Escape can pause it mid-movement."""
@@ -182,13 +256,18 @@ class Game:
         if tile and tile.type == TileType.END:
             self.hop_animation(start_pos, end_pos)
         elif object_key in self.objects:
-            if self.objects[object_key].function(self, new_x, new_y):
+            obj = self.objects[object_key]
+            if isinstance(obj, QuantumObject) and self.hotbar.apply_selected(self, obj):
+                if obj.function(self, new_x, new_y):
+                    self.hop_animation(start_pos, end_pos)
+            elif obj.function(self, new_x, new_y):
                 self.hop_animation(start_pos, end_pos)
         elif tile and tile.type != TileType.WALL:
             self.hop_animation(start_pos, end_pos)
 
     def advance_level(self):
-        """Finish a single puzzle or advance through the full run without exiting."""
+        """Finish a single puzzle; tutorial levels chain straight to the next
+        step, other levels keep the solved circuit and open completion."""
         if self.run_mode == "tutorial":
             next_step = self.tutorial_step + 1
             if next_step < len(TUTORIAL_LEVELS):
@@ -197,23 +276,92 @@ class Game:
                 self.menu.open("complete")
             return
 
+        self.stuck_elapsed = None
+        try:
+            self.quantum_run = QuantumRun(capture_circuit(self))
+        except ValueError as exc:
+            self.quantum_run = QuantumRun(error=str(exc))
+        skip_screen = self.run_mode == "full" and not self.settings["full_run_completion"]
+        if skip_screen and self.settings["auto_quantum_runs"]:
+            if self.quantum_run.circuit is not None:
+                self.background_quantum_runs.append(self.quantum_run)
+                self.quantum_run.command("enqueue")
+                self.show_quantum_notice(f"Level {self.current_level:02}: checking hardware and queueing your circuit...")
+            else:
+                self.show_quantum_notice(f"Level {self.current_level:02}: this circuit cannot run on hardware.")
+        # Opening completion first also leaves a recovery route if the next
+        # level file fails validation; loading it must never strand the player.
+        self.menu.open("complete")
+        if skip_screen and self.has_next_level():
+            self.next_level()
+
+    def show_quantum_notice(self, message, color=ACCENT, duration=8000):
+        self.quantum_notice = message
+        self.quantum_notice_color = color
+        self.quantum_notice_until = pygame.time.get_ticks() + duration
+
+    def clear_quantum_notice(self):
+        self.quantum_notice = ""
+        self.quantum_notice_until = 0
+
+    def update_background_quantum_runs(self):
+        for run in self.background_quantum_runs[:]:
+            previous = run.data["state"]
+            run.update()
+            state = run.data["state"]
+            if state != previous:
+                level = run.circuit["level"]
+                if state in ("queued", "running", "done"):
+                    self.show_quantum_notice(f"Level {level:02}: hardware run {state}. See Hardware runs in the menu.")
+                elif state in ("setup", "unavailable", "failed", "uncertain"):
+                    self.show_quantum_notice(f"Level {level:02}: hardware run needs attention. See Hardware runs in the menu.")
+            if not run.busy and state not in ("queued", "running", "submitting"):
+                self.background_quantum_runs.remove(run)
+
+    def next_level(self):
         index = self.available_levels.index(self.current_level)
         if self.run_mode == "full" and index + 1 < len(self.available_levels):
             self.start_level(self.available_levels[index + 1], "full")
-        else:
-            self.menu.open("complete")
+
+    def has_next_level(self):
+        return self.run_mode == "full" and self.current_level != self.available_levels[-1]
 
     def start_level(self, level, mode="single"):
-        self.load_level(f"./levels/{level}.json")
+        """Load a level and play it.
+
+        Every route into a level - the menu, level select, finishing one level
+        of a run, and the restart key - comes through here, so this is the one
+        place that has to survive a broken level file. `load_level` validates
+        before it touches anything, so a failure here leaves the game exactly
+        as it was rather than dropping the player into a half-loaded level.
+        """
+        try:
+            self.load_level(f"./levels/{level}.json")
+        except LevelError as err:
+            print(f"Could not load level {level}: {err}")
+            return
         self.current_level = level
         self.run_mode = mode
+        self.quantum_run = None
         self.menu.open("playing")
 
     def start_tutorial(self, step=0):
+        """Start (or advance to) one guided tutorial step.
+
+        Tutorial levels are addressed by name (tutorial_1.json, ...) rather
+        than the numbered ids in available_levels, so current_level is set to
+        a negative sentinel (-1, -2, ...) purely for display - see
+        MenuUI.level_label(). Loads before committing any state, same as
+        start_level, so a broken tutorial file can't strand the player.
+        """
+        try:
+            self.load_level(f"./levels/{TUTORIAL_LEVELS[step]}.json")
+        except LevelError as err:
+            print(f"Could not load tutorial step {step}: {err}")
+            return
         self.tutorial_step = step
         self.run_mode = "tutorial"
-        self.current_level = -(step + 1)   # negative sentinel: -1, -2, ...
-        self.load_level(f"./levels/{TUTORIAL_LEVELS[step]}.json")
+        self.current_level = -(step + 1)
         self.menu.open("playing")
 
     def restart_level(self):
@@ -225,8 +373,40 @@ class Game:
     def return_to_menu(self):
         self.menu.open("main")
 
+    def update_stuck(self, elapsed):
+        """Check for an unwinnable level, then let it sink in before saying so.
+
+        The solver runs only when a resource was consumed, so this costs
+        nothing on an ordinary frame. It is deliberately skipped mid-hop: the
+        player's position is fractional while they are jumping, which describes
+        no tile, and the check simply happens on the frame the hop lands.
+
+        A solver result of "unknown" (its budget ran out) is not stuck - see
+        `level_solver.Solution.is_stuck`.
+
+        Turning the setting off cancels any pending countdown and stops the
+        solver running at all. `resources` is deliberately left stale while it
+        is off, so turning it back on looks like a change and re-checks a level
+        that was played on in the meantime.
+        """
+        if not self.settings["stuck_warning"]:
+            self.stuck_elapsed = None
+            return
+
+        signature = self.resource_signature()
+        if self.hop is None and signature != self.resources:
+            self.resources = signature
+            if level_solver.solve(level_solver.snapshot(self)).is_stuck:
+                self.stuck_elapsed = 0
+
+        if self.stuck_elapsed is not None:
+            self.stuck_elapsed += elapsed
+            if self.stuck_elapsed >= STUCK_DELAY_MS:
+                self.show_failed()
+
     def show_failed(self):
-        """Display failure without detecting it."""
+        """Open the failure screen and stop any pending countdown."""
+        self.stuck_elapsed = None
         self.menu.open("failed")
 
     def cancel_dragging(self):
@@ -254,12 +434,16 @@ class Game:
         for sprite in all_sprites:
             self.screen.blit(sprite.image, sprite.rect)
 
-        self.hotbar.sprites.draw(self.screen)
+        self.hotbar.draw_selection_panel(self.screen)
+        for slot in self.hotbar.slots.values():
+            if slot.dragging:
+                self.screen.blit(slot.image, slot.rect)
         if interactive:
             if self.settings["entanglement_guides"]:
                 self.entanglement_visuals()
-            hover(self.hotbar.slots, self.screen)
         self.menu.draw_hud()
+        if self.gate_help_open:
+            self.hotbar.draw_help_window(self.screen)
 
         if update:
             pygame.display.update()
@@ -280,6 +464,7 @@ class Game:
                         elif isinstance(obj, QuantumObject) and isinstance(other_obj, QuantumObject):
                             if obj.control == 'CNOT':
                                 obj.apply_effect(self, [alpha.Flip(), other_obj.position])
+                                self.tutorial.on_apply(obj.position)
                             elif obj.control == 'CHAD':
                                 obj.apply_effect(self, [alpha.Superposition(), other_obj.position])
                                 self.tutorial.on_apply(obj.position)
@@ -315,7 +500,14 @@ class Game:
         now = pygame.time.get_ticks()
         elapsed = min(now - self.last_tick, 100)
         self.last_tick = now
+        self.update_background_quantum_runs()
+        if self.quantum_run is not None and self.quantum_run not in self.background_quantum_runs:
+            self.quantum_run.update()
+        self.menu.quantum.update()
         was_playing = self.menu.page == "playing"
+        # Before input, so a level choice held over from an earlier frame is
+        # released while its loading screen is the thing on the display.
+        self.menu.update()
         self.handle_events()
         if not self.running:
             return
@@ -327,6 +519,7 @@ class Game:
                     if self.correlation_elapsed >= 1000:
                         self.correlation_update()
                         self.correlation_elapsed %= 1000
+                    self.update_stuck(elapsed)
             if self.menu.page == "playing":
                 update_mouse_drag(self.hotbar.slots)
                 update_mouse_drag(self.objects)
@@ -375,14 +568,18 @@ class Game:
             elif event.type == KEYDOWN:
                 self.handle_keydown(event)
             elif event.type == MOUSEBUTTONDOWN and event.button == 1:
-                if pygame.Rect(652, 29, 108, 35).collidepoint(event.pos):
+                if self.gate_help_open:
+                    close_rect = getattr(self.hotbar, "help_close_rect", None)
+                    if close_rect is not None and close_rect.collidepoint(event.pos):
+                        self.gate_help_open = False
+                elif pygame.Rect(652, 29, 108, 35).collidepoint(event.pos):
                     self.menu.open("paused")
                 else:
                     obj_effect = self.handle_object_dragging(event)
                     if obj_effect:
                         self.hotbar.remove_by_key(obj_effect)
                     else:
-                        handle_slot_mouse_down(self.hotbar.slots, event)
+                        self.hotbar.handle_selection_mouse_down(event)
             elif event.type == MOUSEBUTTONUP and event.button == 1:
                 self.hotbar.handle_mouse_up(self, event)
             if self.menu.page != previous_page:
@@ -391,15 +588,22 @@ class Game:
 
     def handle_keydown(self, event):
         """Handles keydown events for movement and other actions."""
-        if event.key in (K_ESCAPE, K_q):
+        if event.key == K_h:
+            self.gate_help_open = not self.gate_help_open
+            return
+        if self.gate_help_open:
+            if event.key == K_ESCAPE:
+                self.gate_help_open = False
+            return
+        number_keys = (K_1, K_2, K_3, K_4, K_5, K_6, K_7, K_8, K_9)
+        if event.key in number_keys:
+            self.hotbar.select_by_number(self, number_keys.index(event.key) + 1)
+        elif event.key in (K_ESCAPE, K_q):
             self.menu.open("paused")
         elif event.key in [K_w, K_s, K_a, K_d]:
             self.update_position(event.key)
         elif event.key == K_r:
-            try:
-                self.restart_level()
-            except LevelError as err:
-                print(f"Could not restart level: {err}")
+            self.restart_level()
 
     def handle_tutorial_event(self, event):
         if event.type == KEYDOWN and event.key == K_ESCAPE:

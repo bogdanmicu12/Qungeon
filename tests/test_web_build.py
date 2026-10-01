@@ -16,9 +16,21 @@ def digest(path):
 def test_every_configured_browser_file_exists():
     config = json.loads((WEB / "pyscript.json").read_text(encoding="utf-8"))
 
-    assert config["packages"] == ["cirq-core==1.7.0"]
     missing = [url for url in config["files"] if not (WEB / url).is_file()]
     assert missing == []
+
+
+def test_the_quantum_stack_is_not_installed_during_boot():
+    """cirq and its dependencies are ~37 MB and nothing on the menu needs them.
+
+    Listing them here installs them before any Python runs, which held the
+    loading screen up for ~20s. web/main.py installs them with micropip once
+    the menu is on screen instead.
+    """
+    config = json.loads((WEB / "pyscript.json").read_text(encoding="utf-8"))
+
+    assert config["packages"] == ["micropip"]
+    assert "cirq-core==1.7.0" in (WEB / "main.py").read_text(encoding="utf-8")
 
 
 def test_browser_uses_original_game_files_without_copies():
