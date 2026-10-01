@@ -177,6 +177,13 @@ class Hotbar:
             count_text = font(13).render(f"x{count}", True, RED if unavailable else MUTED)
             screen.blit(count_text, count_text.get_rect(midleft=(card.x + 36, card.y + 37)))
 
+        mouse_pos = pygame.mouse.get_pos()
+        for key, rect in self.selection_rects.items():
+            slot = self.slots.get(key)
+            if slot and slot.count > 0 and rect.collidepoint(mouse_pos):
+                slot.hover(screen)
+                break
+
         instruction = font(15).render(
             "Select with keys and move over a pillar, or drag when next to a pillar",
             True, MUTED,
