@@ -1,5 +1,6 @@
 """Integrity checks for the minimal static browser entry point."""
 
+import ast
 import hashlib
 import json
 from pathlib import Path
@@ -53,3 +54,45 @@ def test_bundled_unitary_alpha_matches_pinned_checkout_when_available():
         digest(source / module.name) == digest(module)
         for module in modules
     )
+
+
+def module_level_imports(path):
+    """`scripts.*` modules a file imports at load time (not inside functions)."""
+    found, todo = set(), list(ast.parse(path.read_text(encoding="utf-8")).body)
+    while todo:
+        node = todo.pop()
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        if isinstance(node, ast.ImportFrom) and node.module:
+            names = [node.module]
+            if node.module == "scripts":
+                names += [f"scripts.{alias.name}" for alias in node.names]
+            found.update(name for name in names if name.startswith("scripts."))
+        todo.extend(ast.iter_child_nodes(node))
+    return found
+
+
+def test_browser_ships_everything_the_game_loads():
+    """A module, level or unitary file missing here only fails in the browser."""
+    config = json.loads((WEB / "pyscript.json").read_text(encoding="utf-8"))
+    shipped = {target.removeprefix("./") for target in config["files"].values()}
+
+    needed, todo = set(), [ROOT / "Qungeon.py"]
+    while todo:
+        for module in module_level_imports(todo.pop()):
+            relative = module.replace(".", "/") + ".py"
+            if relative not in needed and (ROOT / relative).is_file():
+                needed.add(relative)
+                todo.append(ROOT / relative)
+
+    needed |= {f"levels/{path.name}" for path in (ROOT / "levels").glob("*.json")}
+    needed |= {
+        f"unitary/alpha/{path.name}"
+        for path in (WEB / "unitary" / "alpha").glob("*.py")
+    }
+    needed |= {
+        f"assets/{path.name}"
+        for path in (ROOT / "assets").glob("*-gate.png")
+    }
+
+    assert sorted(needed - shipped) == []
