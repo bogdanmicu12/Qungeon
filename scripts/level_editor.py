@@ -7,7 +7,6 @@ import pygame
 
 from scripts.common_functions import font
 from scripts.level_validation import validate_level, LevelError, parse_pos
-from scripts.game_objects import gates as GAME_GATES
 
 BG = (17, 19, 30)
 PANEL = (26, 29, 43)

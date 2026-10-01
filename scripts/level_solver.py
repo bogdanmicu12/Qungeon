@@ -770,6 +770,8 @@ def _canonical_vector(vector):
         )
 
     # Adding 0.0 turns -0.0 into 0.0, which would otherwise hash differently.
+    # Equal physical states must share a cache key or the search re-explores
+    # them and can incorrectly exhaust its budget.
     return (
         np.round(
             vector,

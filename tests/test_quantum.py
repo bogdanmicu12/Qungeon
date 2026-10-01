@@ -20,6 +20,9 @@ from scripts.quantum_run import QuantumRun, capture_circuit
 @pytest.fixture
 def game():
     result = Game(SimpleNamespace(level=1), settings={}, persist_settings=lambda _: True)
+    # Game() no longer loads a level - the quantum stack is imported on demand -
+    # so the level these tests run against has to be started explicitly.
+    result.start_level(1, "single")
     pygame.event.clear()
     return result
 
