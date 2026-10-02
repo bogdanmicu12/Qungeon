@@ -180,6 +180,15 @@ class Game:
         self.editor = LevelEditor(self)
         self.menu.open("editor")
 
+    def solve_level_data(self, level_data):
+        """Check editor data without first loading it into the live game.
+
+        Keeping this here lets the editor remain cheap to open: the quantum
+        stack is imported only when a player explicitly asks to save a level.
+        """
+        load_gameplay()
+        return level_solver.solve_level_data(level_data)
+
     def load_level(self, filename):
         """Load and validate a level before replacing the current game state."""
         # read_level() is responsible for parsing the file.

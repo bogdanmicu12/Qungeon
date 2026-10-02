@@ -342,6 +342,13 @@ class LevelEditor:
         }
 
     def save(self, quiet=False):
+        """Write the level and return whether it is safe to test immediately.
+
+        An unsolvable draft is still saved so the author can keep editing it,
+        but callers must not launch it.  ``None`` is the solver's bounded
+        search result (rather than a proof of failure), so it is likewise not
+        safe to launch until the level can be confirmed.
+        """
         n = self.level_number()
         if n is None:
             self.set_status("Enter a valid level number")
@@ -352,6 +359,8 @@ class LevelEditor:
         except LevelError as err:
             self.set_status(str(err))
             return False
+
+        solution = self.game.solve_level_data(data)
         try:
             os.makedirs("./levels", exist_ok=True)
             with open(f"./levels/{n}.json", "w", encoding="utf-8") as file:
@@ -361,8 +370,18 @@ class LevelEditor:
             return False
         self.game.available_levels = self.game.find_levels()
         self.game.menu.previews.pop(n, None)
-        self.set_status(f"Saved level {n}")
-        return True
+        if solution.solvable is True:
+            self.set_status(f"Saved level {n} (solvable)")
+            return True
+        if solution.solvable is False:
+            self.set_status(
+                f"Saved {n}. Not solvable yet; test blocked"
+            )
+        else:
+            self.set_status(
+                f"Saved {n}. Solver inconclusive; test blocked"
+            )
+        return False
 
     def load(self):
         n = self.level_number()
