@@ -1,5 +1,6 @@
 """In-game level editor for Qungeon."""
 import json
+import math
 import os
 from pathlib import Path
 
@@ -16,6 +17,8 @@ MUTED = (154, 158, 177)
 ACCENT = (182, 164, 242)
 MINT = (161, 220, 189)
 RED = (233, 149, 159)
+CHECKING = (105, 88, 166)
+CHECK_NODES_PER_FRAME = 100
 
 # Color and Quantum State representations
 EFFECT_COLORS = {
@@ -58,6 +61,13 @@ class LevelEditor:
         self.status = "New level"
         self.status_time = 0
         self.dragging_paint = False
+        # The solver is advanced in small batches by ``update``.  This keeps
+        # pygame responsive without OS threads, which browser/PyScript does
+        # not permit.
+        self.checking_action = None
+        self._pending_save = None
+        self._solver_task = None
+        self._check_rendered = False
         self.reset()
 
     def next_level_number(self):
@@ -210,6 +220,9 @@ class LevelEditor:
         self.status_time = pygame.time.get_ticks()
 
     def activate(self, action):
+        if self.checking_action is not None:
+            return
+
         if action in ("EMPTY", "WALL", "START", "END", "ERASE"):
             self.tool = action
             self.effect_tool = None
@@ -235,10 +248,7 @@ class LevelEditor:
         elif action == "SAVE":
             self.save(False)
         elif action == "TEST":
-            if self.save(False):
-                n = self.level_number()
-                self.game.available_levels = self.game.find_levels()
-                self.game.start_level(n, "single")
+            self.save(False, test_after_check=True)
         elif action == "BACK":
             self.game.menu.open("main")
 
@@ -253,6 +263,12 @@ class LevelEditor:
             self.set_tile(pos, self.tool)
 
     def handle_event(self, event):
+        # Do not let the draft change beneath the in-flight check.  It is
+        # deliberately a short UI lock rather than a frozen event loop: the
+        # spinner continues to animate and window events remain responsive.
+        if self.checking_action is not None:
+            return
+
         if event.type == pygame.KEYDOWN:
             if self.text_active:
                 if event.key in (pygame.K_RETURN, pygame.K_KP_ENTER):
@@ -341,14 +357,16 @@ class LevelEditor:
             "effects": valid_effects,
         }
 
-    def save(self, quiet=False):
-        """Write the level and return whether it is safe to test immediately.
+    def save(self, quiet=False, test_after_check=False):
+        """Begin an asynchronous validity check before saving this draft.
 
-        An unsolvable draft is still saved so the author can keep editing it,
-        but callers must not launch it.  ``None`` is the solver's bounded
-        search result (rather than a proof of failure), so it is likewise not
-        safe to launch until the level can be confirmed.
+        The result is committed by :meth:`update` on the pygame thread.  This
+        keeps drawing responsive, including the spinner on the button that
+        started the check.
         """
+        if self.checking_action is not None:
+            return False
+
         n = self.level_number()
         if n is None:
             self.set_status("Enter a valid level number")
@@ -360,7 +378,41 @@ class LevelEditor:
             self.set_status(str(err))
             return False
 
-        solution = self.game.solve_level_data(data)
+        self.checking_action = "TEST" if test_after_check else "SAVE"
+        self._pending_save = (n, data, test_after_check)
+        self._solver_task = None
+        self._check_rendered = False
+        self.set_status("Checking level validity...")
+        return False
+
+    def update(self):
+        """Advance and commit a frame-sliced validity check on the UI thread."""
+        if self._pending_save is None:
+            return
+
+        n, data, test_after_check = self._pending_save
+
+        try:
+            if self._solver_task is None:
+                self._solver_task = self.game.start_level_solver_task(data)
+
+            solution = self._solver_task.advance(CHECK_NODES_PER_FRAME)
+        except Exception as err:
+            self._solver_task = None
+            self._pending_save = None
+            self.checking_action = None
+            self._check_rendered = False
+            self.set_status(f"Level check failed: {err}")
+            return
+
+        if solution is None:
+            return
+
+        self._solver_task = None
+        self._pending_save = None
+        self.checking_action = None
+        self._check_rendered = False
+
         try:
             os.makedirs("./levels", exist_ok=True)
             with open(f"./levels/{n}.json", "w", encoding="utf-8") as file:
@@ -372,8 +424,9 @@ class LevelEditor:
         self.game.menu.previews.pop(n, None)
         if solution.solvable is True:
             self.set_status(f"Saved level {n} (solvable)")
-            return True
-        if solution.solvable is False:
+            if test_after_check:
+                self.game.start_level(n, "single")
+        elif solution.solvable is False:
             self.set_status(
                 f"Saved {n}. Not solvable yet; test blocked"
             )
@@ -381,7 +434,6 @@ class LevelEditor:
             self.set_status(
                 f"Saved {n}. Solver inconclusive; test blocked"
             )
-        return False
 
     def load(self):
         n = self.level_number()
@@ -408,6 +460,11 @@ class LevelEditor:
         self.game.screen.blit(font(size).render(str(text), True, color), (x, y))
 
     def draw(self):
+        # A trivial level can be checked in less than one frame.  Delay
+        # consuming an already-ready result until this state has been painted
+        # once, otherwise the user would never see the requested feedback.
+        if self.checking_action is None or self._check_rendered:
+            self.update()
         screen = self.game.screen
         screen.fill(BG)
         self.draw_text("LEVEL EDITOR", 28, 25, 32, ACCENT)
@@ -469,10 +526,20 @@ class LevelEditor:
         # Draw UI Controls
         for action, rect, label in self.buttons():
             active = (action == self.tool)
-            fill = ACCENT if active else PANEL
+            checking = action == self.checking_action
+            fill = CHECKING if checking else (ACCENT if active else PANEL)
             pygame.draw.rect(screen, fill, rect)
-            pygame.draw.rect(screen, INK if active else EDGE, rect, 1)
-            self.draw_text(label, rect.x + 8, rect.y + 7, 15, BG if active else INK)
+            pygame.draw.rect(screen, INK if active or checking else EDGE, rect, 1)
+            button_label = "Checking" if checking else label
+            self.draw_text(
+                button_label,
+                rect.x + (4 if checking else 8),
+                rect.y + 7,
+                12 if checking else 15,
+                BG if active else INK,
+            )
+            if checking:
+                self.draw_spinner(rect.right - 15, rect.centery)
 
         self.draw_text("Gate pickups", 492, 218, 17, MUTED)
         self.draw_text("Initial states", 492, 368, 17, MUTED)
@@ -514,3 +581,18 @@ class LevelEditor:
         )
 
         pygame.display.update()
+        if self.checking_action is not None:
+            self._check_rendered = True
+
+    def draw_spinner(self, x, y):
+        """Draw a small rotating activity indicator on the active save button."""
+        phase = (pygame.time.get_ticks() // 90) % 8
+        for index in range(8):
+            angle = (index - phase) * 0.785
+            radius = 6
+            start = (
+                x + int(radius * math.cos(angle)),
+                y + int(radius * math.sin(angle)),
+            )
+            color = INK if index == 0 else EDGE
+            pygame.draw.circle(self.game.screen, color, start, 2)

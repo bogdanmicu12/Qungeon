@@ -4,6 +4,7 @@ import ast
 import hashlib
 import json
 from pathlib import Path
+from urllib.parse import urlsplit
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -17,7 +18,11 @@ def digest(path):
 def test_every_configured_browser_file_exists():
     config = json.loads((WEB / "pyscript.json").read_text(encoding="utf-8"))
 
-    missing = [url for url in config["files"] if not (WEB / url).is_file()]
+    missing = [
+        url
+        for url in config["files"]
+        if not (WEB / urlsplit(url).path).is_file()
+    ]
     assert missing == []
 
 

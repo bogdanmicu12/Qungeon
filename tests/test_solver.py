@@ -583,6 +583,21 @@ def test_budget_exhaustion_reports_unknown_never_stuck(game):
     assert solution.is_stuck is False
 
 
+def test_solver_task_yields_between_search_batches(game):
+    """The editor can keep repainting while an exhaustive search progresses."""
+    load(game, 6)
+    task = level_solver.SolverTask(level_solver.snapshot(game))
+
+    # Level 6 needs many nodes, so one batch cannot already finish it.
+    assert task.advance(1) is None
+    assert task.done is False
+
+    while not task.done:
+        task.advance(100)
+
+    assert task.solution.solvable is True
+
+
 def test_is_solvable_reads_the_live_game(game):
     """The public entry point works straight off a Game instance."""
     load(game, 1)

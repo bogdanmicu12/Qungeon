@@ -1020,71 +1020,116 @@ class Solution:
         return self.solvable is False
 
 
-def solve(state, budget=DEFAULT_BUDGET):
-    """Search for any action sequence that reaches the END tile.
+class SolverTask:
+    """A solvability search that can be advanced without blocking a frame.
 
-    Depth-first with memoisation on `_key`; the depth is bounded by the number
-    of gates the player can still spend plus the loot boxes left, so the search
-    terminates without a depth limit.
+    Each yielded step expands one search node.  Desktop callers can run the
+    task to completion through :func:`solve`; the level editor advances a
+    small batch per frame.  This deliberately avoids OS threads, which are
+    unavailable in the browser/PyScript build.
     """
-    visited = set()
-    nodes = 0
-    exhausted = False
 
-    def descend(current, plan):
-        nonlocal nodes, exhausted
+    def __init__(self, state, budget=DEFAULT_BUDGET):
+        self._steps = self._search(state, budget)
+        self.solution = None
 
-        region = reachable(current)
+    @property
+    def done(self):
+        return self.solution is not None
 
-        if _is_won(current, region):
-            return plan
+    def advance(self, node_limit=100):
+        """Expand at most ``node_limit`` nodes; return a result when finished."""
+        if self.solution is not None:
+            return self.solution
 
-        key = _key(
-            current,
-            region,
-        )
+        for _ in range(node_limit):
+            try:
+                next(self._steps)
+            except StopIteration as completed:
+                self.solution = completed.value
+                break
 
-        if key in visited:
-            return None
+        return self.solution
 
-        visited.add(key)
-        nodes += 1
+    @staticmethod
+    def _search(state, budget):
+        visited = set()
+        nodes = 0
+        exhausted = False
 
-        if nodes > budget:
-            exhausted = True
-            return None
+        def descend(current, plan):
+            nonlocal nodes, exhausted
 
-        for actions, following in _successors(
-            current,
-            region,
-        ):
-            found = descend(
-                following,
-                plan + actions,
+            region = reachable(current)
+
+            if _is_won(current, region):
+                return plan
+
+            key = _key(
+                current,
+                region,
             )
 
-            if found is not None:
-                return found
+            if key in visited:
+                return None
 
-        return None
+            visited.add(key)
+            nodes += 1
 
-    plan = descend(
-        state,
-        (),
-    )
+            if nodes > budget:
+                exhausted = True
+                return None
 
-    if plan is not None:
+            # Yield before generating a successor, which keeps a large
+            # exhaustive search responsive when advanced from the UI loop.
+            yield None
+
+            for actions, following in _successors(
+                current,
+                region,
+            ):
+                found = yield from descend(
+                    following,
+                    plan + actions,
+                )
+
+                if found is not None:
+                    return found
+
+            return None
+
+        plan = yield from descend(
+            state,
+            (),
+        )
+
+        if plan is not None:
+            return Solution(
+                True,
+                plan,
+                nodes,
+            )
+
         return Solution(
-            True,
-            plan,
+            None if exhausted else False,
+            (),
             nodes,
         )
 
-    return Solution(
-        None if exhausted else False,
-        (),
-        nodes,
-    )
+
+def solve(state, budget=DEFAULT_BUDGET):
+    """Search for any action sequence that reaches the END tile.
+
+    This synchronous convenience API drives :class:`SolverTask` to
+    completion.  Callers that must keep a UI responsive can instead retain a
+    task and repeatedly call ``advance``.
+    """
+    task = SolverTask(state, budget)
+
+    while not task.done:
+        task.advance()
+
+    return task.solution
 
 
 def state_from_level_data(level_data):

@@ -67,6 +67,26 @@ pillar_image = None
 gates = None
 
 
+class _SynchronousSolverTask:
+    """Compatibility adapter for a browser with a stale solver module.
+
+    The browser file cache can briefly pair a new editor with an older
+    ``level_solver.py``.  That version has ``solve_level_data`` but not the
+    frame-sliced ``SolverTask`` API.  Completing one check synchronously is
+    preferable to showing an internal AttributeError while the cache refreshes.
+    """
+
+    def __init__(self, solver, level_data):
+        self.solver = solver
+        self.level_data = level_data
+        self.solution = None
+
+    def advance(self, _node_limit):
+        if self.solution is None:
+            self.solution = self.solver.solve_level_data(self.level_data)
+        return self.solution
+
+
 def load_gameplay():
     """Import the quantum stack. Idempotent; the first call does the work."""
     global alpha, level_solver, Hotbar, BLOCK_SIZE
@@ -188,6 +208,16 @@ class Game:
         """
         load_gameplay()
         return level_solver.solve_level_data(level_data)
+
+    def start_level_solver_task(self, level_data):
+        """Create a frame-sliced validity check for the level editor."""
+        load_gameplay()
+        task_type = getattr(level_solver, "SolverTask", None)
+
+        if task_type is None:
+            return _SynchronousSolverTask(level_solver, level_data)
+
+        return task_type(level_solver.state_from_level_data(level_data))
 
     def load_level(self, filename):
         """Load and validate a level before replacing the current game state."""

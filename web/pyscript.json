@@ -33,7 +33,7 @@
     "../scripts/game_objects.py": "./scripts/game_objects.py",
     "../scripts/grouping_system.py": "./scripts/grouping_system.py",
     "../scripts/level_editor.py": "./scripts/level_editor.py",
-    "../scripts/level_solver.py": "./scripts/level_solver.py",
+    "../scripts/level_solver.py?v=12": "./scripts/level_solver.py",
     "../scripts/level_validation.py": "./scripts/level_validation.py",
     "../scripts/menus.py": "./scripts/menus.py",
     "../scripts/pillar_map.py": "./scripts/pillar_map.py",
