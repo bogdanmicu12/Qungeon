@@ -8,9 +8,13 @@ arbitrary code via eval()/getattr().
 """
 
 import json
+import math
 
 
 REQUIRED_KEYS = ("tiles", "objects", "quantum_objects", "gates", "effects")
+EDITOR_LEVEL_KEY = "editor_created"
+PILLAR_STATES_KEY = "pillar_states"
+
 VALID_TILES = {"EMPTY", "START", "END", "WALL"}
 VALID_GATES = {"X", "H", "Z", "RotY", "CNOT", "CHAD", "SWAP"}
 VALID_EFFECTS = {"Flip", "Superposition", "Phase"}
@@ -49,6 +53,7 @@ def validate_level(level_data, filename):
         except LevelError as err:
             raise LevelError(f"{filename}: {err}")
 
+    # Validate top-level structure before accessing any fields.
     if not isinstance(level_data, dict):
         raise LevelError(f"{filename}: top level must be a JSON object")
 
@@ -64,6 +69,7 @@ def validate_level(level_data, filename):
     for key in ("tiles", "objects", "gates"):
         if not isinstance(level_data[key], dict):
             raise LevelError(f"{filename}: {key!r} must be a JSON object")
+
     for key in ("quantum_objects", "effects"):
         if not isinstance(level_data[key], list):
             raise LevelError(f"{filename}: {key!r} must be a list")
@@ -159,10 +165,115 @@ def validate_level(level_data, filename):
                 "non-negative integer"
             )
 
+    # Validate explicit pillar states used by editor-created levels.
+    pillar_states = level_data.get(PILLAR_STATES_KEY, {})
+
+    if not isinstance(pillar_states, dict):
+        raise LevelError(
+            f"{filename}: pillar_states must be an object"
+        )
+
+    state_positions = set()
+
+    for pos_str, state in pillar_states.items():
+        check_pos(pos_str)
+        parsed = parse_pos(pos_str)
+
+        if parsed in state_positions:
+            raise LevelError(
+                f"{filename}: duplicate pillar state at {pos_str}"
+            )
+
+        if parsed not in pillar_positions:
+            raise LevelError(
+                f"{filename}: pillar state at {pos_str} is not a quantum object"
+            )
+
+        if not isinstance(state, dict) or set(state) != {"x", "y"}:
+            raise LevelError(
+                f"{filename}: pillar state at {pos_str} must contain "
+                "only 'x' and 'y'"
+            )
+
+        def amplitude(value, label):
+            """Validate and return a complex amplitude as (real, imag)."""
+            # JSON has no complex-number type, so editor states store each
+            # amplitude as {"real": ..., "imag": ...}. Keep plain real
+            # numbers readable/compatible for older levels.
+            if isinstance(value, dict):
+                if set(value) != {"real", "imag"}:
+                    raise LevelError(
+                        f"{filename}: invalid {label} amplitude at {pos_str}"
+                    )
+
+                real, imag = value["real"], value["imag"]
+            else:
+                real, imag = value, 0.0
+
+            if (
+                isinstance(real, bool)
+                or not isinstance(real, (int, float))
+                or not math.isfinite(real)
+                or isinstance(imag, bool)
+                or not isinstance(imag, (int, float))
+                or not math.isfinite(imag)
+            ):
+                raise LevelError(
+                    f"{filename}: invalid {label} amplitude at {pos_str}"
+                )
+
+            return float(real), float(imag)
+
+        xr, xi = amplitude(state["x"], "x")
+        yr, yi = amplitude(state["y"], "y")
+
+        norm = xr * xr + xi * xi + yr * yr + yi * yi
+
+        if not math.isclose(
+            norm,
+            1.0,
+            rel_tol=1e-6,
+            abs_tol=1e-6,
+        ):
+            raise LevelError(
+                f"{filename}: amplitudes at {pos_str} must satisfy "
+                "|x|² + |y|² = 1"
+            )
+
+        state_positions.add(parsed)
+
+    # Editor-created levels use explicit pillar amplitudes instead of effects.
+    if level_data.get(EDITOR_LEVEL_KEY) and level_data.get("effects"):
+        raise LevelError(
+            f"{filename}: editor-created levels must use pillar amplitudes, "
+            "not effects"
+        )
+
+    # Every pillar in an editor-created level must have exactly one state.
+    if level_data.get(EDITOR_LEVEL_KEY) and state_positions != pillar_positions:
+        missing = pillar_positions - state_positions
+        extra = state_positions - pillar_positions
+
+        details = []
+
+        if missing:
+            details.append(f"missing states at {sorted(missing)}")
+
+        if extra:
+            details.append(f"extra states at {sorted(extra)}")
+
+        raise LevelError(
+            f"{filename}: editor-created levels require one state for every "
+            f"pillar ({'; '.join(details)})"
+        )
+
     # Validate quantum effects.
     for entry in level_data["effects"]:
         if not isinstance(entry, dict):
-            raise LevelError(f"{filename}: effect entry must be a JSON object: {entry}")
+            raise LevelError(
+                f"{filename}: effect entry must be a JSON object: {entry}"
+            )
+
         if "position" not in entry or "effect" not in entry:
             raise LevelError(
                 f"{filename}: effect entry missing "

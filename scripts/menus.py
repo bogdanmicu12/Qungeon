@@ -78,13 +78,25 @@ class MenuUI:
         self.help_return = "main"
         self.focus = 0
         self.pressed = None
-        self.pending = None      # level choice waiting on the quantum stack
-        self.loading_from = "main"   # where to go back to if it will not load
-        self.loading_drawn = False   # the screen the import is allowed to block behind
+
+        # Level choices waiting for the quantum/gameplay stack to be ready.
+        self.pending = None
+        self.loading_from = "main"
+        self.loading_drawn = False
+
         self.previews = {}
         self.settings_saved = True
+
+        # Custom QGL level input.
+        self.seed_text = ""
+        self.seed_active = False
+        self.seed_error = ""
+
         self.quantum = QuantumMenu(self)
-        self.level_scroll = ScrollView((60, 207, 680, 276), (680, 0))
+        self.level_scroll = ScrollView(
+            (60, 207, 680, 276),
+            (680, 0),
+        )
 
         self.images = {
             name: pygame.image.load(f"./assets/{name}.png")
@@ -202,16 +214,16 @@ class MenuUI:
                     action,
                     pygame.Rect(
                         60,
-                        300 + index * 50,
+                        300 + index * 58,
                         326,
-                        42,
+                        46,
                     ),
                     label,
                     hint,
                 )
                 for index, (action, label, hint) in enumerate(
                     (
-                        ("setup", "Start run", ""),
+                        ("play", "Play", ""),
                         ("levels", "Level select", "02"),
                         ("editor", "Level editor", "03"),
                         ("settings", "Settings", "04"),
@@ -223,13 +235,51 @@ class MenuUI:
                     "quantum_history",
                     pygame.Rect(
                         482,
-                        500,
+                        532,
                         258,
-                        42,
+                        46,
                     ),
                     "Hardware runs",
                     "",
                 )
+            ]
+
+        if self.page == "play":
+            return [
+                (
+                    "normal_levels",
+                    pygame.Rect(60, 245, 680, 58),
+                    "Normal levels",
+                    "Play the built-in levels in order.",
+                ),
+                (
+                    "custom_seed",
+                    pygame.Rect(60, 319, 680, 58),
+                    "Custom level code",
+                    "Paste a QGL share code copied from the level editor.",
+                ),
+                (
+                    "back",
+                    pygame.Rect(60, 491, 200, 44),
+                    "Back",
+                    "",
+                ),
+            ]
+
+        if self.page == "custom_seed":
+            return [
+                (
+                    "load_seed",
+                    pygame.Rect(486, 360, 254, 48),
+                    "Play custom level",
+                    "",
+                ),
+                (
+                    "back",
+                    pygame.Rect(60, 491, 200, 44),
+                    "Back",
+                    "",
+                ),
             ]
 
         if self.page in ("settings", "setup"):
@@ -313,10 +363,16 @@ class MenuUI:
 
         if self.page == "levels":
             result = []
+
             view = self.level_scroll
             rows = -(-len(self.game.available_levels) // 4)
 
-            view.resize((view.rect.width, max(0, rows * 128 - 16 + 4)))
+            view.resize(
+                (
+                    view.rect.width,
+                    max(0, rows * 128 - 16 + 4),
+                )
+            )
 
             for index, level in enumerate(
                 self.game.available_levels
@@ -326,7 +382,11 @@ class MenuUI:
                         f"level:{level}",
                         pygame.Rect(
                             60 + (index % 4) * 174,
-                            round(view.rect.y + (index // 4) * 128 - view.y),
+                            round(
+                                view.rect.y
+                                + (index // 4) * 128
+                                - view.y
+                            ),
                             158,
                             112,
                         ),
@@ -403,27 +463,40 @@ class MenuUI:
         ]
 
     def update(self):
-        """Start the level the player already chose, once the code is here.
+        """Start a pending gameplay action after the loading screen is drawn.
 
-        The import blocks for seconds, so it may only start once the loading
-        screen has actually been drawn - whether the choice came from a click
-        or straight from a ?level= link. Running before this frame's input
-        also means clicks that piled up during the freeze are discarded rather
-        than landing in the level.
+        Importing/loading the quantum stack may block for several seconds, so
+        the selection is held until a loading frame has actually been shown.
         """
+
         if self.pending is None or not self.loading_drawn:
             return
+
         if not self.game.gameplay_downloaded():
             return
+
         action, self.pending = self.pending, None
-        self.activate(action, released=True)   # imports; blocks for seconds
+        self.loading_drawn = False
+
+        # The actual action runs here, after the loading screen has reached
+        # the display.
+        self.activate(action, released=True)
+
         if self.page == "loading":
-            self.open(self.loading_from)       # the level refused to load
-        # Only input piled up behind the freeze is dropped: clearing the whole
-        # queue would swallow the QUIT of a player who closed the window while
-        # it was blocked, and the window would refuse to shut.
-        pygame.event.clear((pygame.MOUSEBUTTONDOWN, pygame.MOUSEBUTTONUP,
-                            pygame.MOUSEMOTION, pygame.KEYDOWN, pygame.KEYUP))
+            # The action failed to load the selected level.
+            self.open(self.loading_from)
+
+        # Drop input that piled up while the blocking load was running, but
+        # leave QUIT events alone so the window can still close.
+        pygame.event.clear(
+            (
+                pygame.MOUSEBUTTONDOWN,
+                pygame.MOUSEBUTTONUP,
+                pygame.MOUSEMOTION,
+                pygame.KEYDOWN,
+                pygame.KEYUP,
+            )
+        )
 
     def back(self):
         if self.page in (
@@ -436,12 +509,14 @@ class MenuUI:
 
         elif self.page == "paused":
             self.open("playing")
+
         elif self.page == "loading":
-            # The stack may never arrive - a failed micropip install in the
-            # browser leaves gameplay_downloaded() False forever - so the held
-            # choice is dropped rather than stranding the player here.
+            # The stack may never arrive in the browser. Drop the held
+            # selection rather than leaving the player stranded here.
             self.pending = None
+            self.loading_drawn = False
             self.open(self.loading_from)
+
         elif self.page in ("help", "settings"):
             self.open(
                 self.return_page
@@ -449,22 +524,62 @@ class MenuUI:
                 else self.help_return
             )
 
-        elif self.page in ("setup", "levels", "editor"):
+        elif self.page in (
+            "setup",
+            "play",
+            "custom_seed",
+            "levels",
+            "editor",
+        ):
             self.open("main")
 
     def activate(self, action, released=False):
-        if not released and (action.startswith("level:") or action == "start"):
+        """Activate a menu action.
+
+        Gameplay actions are delayed until the quantum stack is ready so the
+        loading screen can be displayed before a blocking import/download.
+        """
+
+        gameplay_actions = {
+            "start",
+            "normal_levels",
+            "load_seed",
+        }
+
+        if not released and action in gameplay_actions:
             if not self.game.gameplay_ready():
-                # Importing the quantum stack blocks for several seconds, so
-                # the choice is held and a loading screen goes up first. The
-                # frame loop yields between frames, which is what lets that
-                # screen actually reach the display before update() blocks.
                 self.pending = action
                 self.loading_from = self.page
                 self.loading_drawn = False
                 self.open("loading")
                 return
-        if action.startswith("quantum"):
+
+        if action == "play":
+            self.open("play")
+
+        elif action == "normal_levels":
+            if self.game.available_levels:
+                self.game.start_level(
+                    self.game.available_levels[0],
+                    "full",
+                )
+
+        elif action == "custom_seed":
+            # Start with a fresh input each time so the previous code never
+            # needs to be deleted character by character.
+            self.seed_text = ""
+            self.seed_active = True
+            self.seed_error = ""
+            self.open("custom_seed")
+            self.seed_active = True
+
+        elif action == "load_seed":
+            self.seed_error = ""
+
+            if self.game.start_seed_level(self.seed_text):
+                self.seed_active = False
+
+        elif action.startswith("quantum"):
             self.quantum.activate(action)
 
         elif action == "next_level":
@@ -526,15 +641,136 @@ class MenuUI:
             self.open(action)
 
     def handle_event(self, event):
-        if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
-            # Ahead of both checks below: the loading page has no buttons, and
-            # Escape is the only way off it if the quantum stack never arrives.
+        # ------------------------------------------------------------
+        # Custom seed text input
+        # ------------------------------------------------------------
+        if self.page == "custom_seed":
+            if event.type == pygame.KEYDOWN and self.seed_active:
+                # Press Enter to play the pasted/typed seed.
+                if event.key in (
+                    pygame.K_RETURN,
+                    pygame.K_KP_ENTER,
+                ):
+                    self.activate("load_seed")
+                    return
+
+                # Ctrl+V = paste seed from clipboard.
+                if (
+                    event.key == pygame.K_v
+                    and pygame.key.get_mods() & pygame.KMOD_CTRL
+                ):
+                    try:
+                        pygame.scrap.init()
+                        pasted = pygame.scrap.get(
+                            pygame.SCRAP_TEXT
+                        )
+
+                        if pasted:
+                            if isinstance(pasted, bytes):
+                                pasted = pasted.decode(
+                                    "utf-8",
+                                    errors="ignore",
+                                )
+
+                            pasted = pasted.replace(
+                                "\x00",
+                                "",
+                            ).strip()
+
+                            self.seed_text = pasted[:4096]
+                            self.seed_error = ""
+
+                    except Exception:
+                        try:
+                            import tkinter as tk
+
+                            root = tk.Tk()
+                            root.withdraw()
+
+                            pasted = root.clipboard_get()
+
+                            root.destroy()
+
+                            if pasted:
+                                self.seed_text = pasted.strip()[:4096]
+                                self.seed_error = ""
+
+                        except Exception:
+                            self.seed_error = (
+                                "Could not access clipboard"
+                            )
+
+                    return
+
+                if event.key == pygame.K_BACKSPACE:
+                    self.seed_text = self.seed_text[:-1]
+                    self.seed_error = ""
+                    return
+
+                if event.key == pygame.K_ESCAPE:
+                    self.seed_active = False
+                    self.back()
+                    return
+
+                if (
+                    event.unicode.isprintable()
+                    and len(self.seed_text) < 4096
+                ):
+                    self.seed_text += event.unicode
+                    self.seed_error = ""
+                    return
+
+            # Click inside the seed input field.
+            if (
+                event.type == pygame.MOUSEBUTTONDOWN
+                and event.button == 1
+            ):
+                seed_rect = pygame.Rect(
+                    60,
+                    255,
+                    680,
+                    60,
+                )
+
+                clear_rect = pygame.Rect(
+                    700,
+                    255,
+                    40,
+                    60,
+                )
+
+                if clear_rect.collidepoint(event.pos):
+                    self.seed_text = ""
+                    self.seed_error = ""
+                    self.seed_active = True
+                    self.focus = 0
+                    return
+
+                if seed_rect.collidepoint(event.pos):
+                    self.seed_active = True
+                    self.focus = 0
+                    return
+
+        # ------------------------------------------------------------
+        # ESC must work on loading and normal menu pages.
+        # ------------------------------------------------------------
+        if (
+            event.type == pygame.KEYDOWN
+            and event.key == pygame.K_ESCAPE
+        ):
             self.back()
             return
+
+        # ------------------------------------------------------------
+        # Quantum menu gets first chance to handle its own events.
+        # ------------------------------------------------------------
         if self.quantum.handle_event(event):
             self.pressed = None
             return
 
+        # ------------------------------------------------------------
+        # Level selector scroll view.
+        # ------------------------------------------------------------
         if (
             self.page == "levels"
             and event.type != pygame.KEYDOWN
@@ -553,6 +789,9 @@ class MenuUI:
             len(buttons) - 1,
         )
 
+        # ------------------------------------------------------------
+        # Keyboard navigation
+        # ------------------------------------------------------------
         if event.type == pygame.KEYDOWN:
             if event.key in (
                 pygame.K_TAB,
@@ -563,18 +802,17 @@ class MenuUI:
             ):
                 step = (
                     -1
-                    if event.key == pygame.K_TAB
-                    and getattr(
-                        event,
-                        "mod",
-                        0,
-                    ) & pygame.KMOD_SHIFT
+                    if (
+                        event.key == pygame.K_TAB
+                        and getattr(event, "mod", 0) & pygame.KMOD_SHIFT
+                    )
                     else 1
                 )
 
                 self.focus = (
                     self.focus + step
                 ) % len(buttons)
+
                 self.reveal_level_focus()
 
             elif event.key in (
@@ -586,6 +824,7 @@ class MenuUI:
                 self.focus = (
                     self.focus - 1
                 ) % len(buttons)
+
                 self.reveal_level_focus()
 
             elif event.key in (
@@ -595,6 +834,10 @@ class MenuUI:
                 self.activate(
                     buttons[self.focus][0]
                 )
+
+        # ------------------------------------------------------------
+        # Mouse hover
+        # ------------------------------------------------------------
         elif event.type == pygame.MOUSEMOTION:
             for index, (
                 action,
@@ -609,6 +852,9 @@ class MenuUI:
                     self.focus = index
                     break
 
+        # ------------------------------------------------------------
+        # Mouse button pressed
+        # ------------------------------------------------------------
         elif (
             event.type == pygame.MOUSEBUTTONDOWN
             and event.button == 1
@@ -625,6 +871,9 @@ class MenuUI:
                 None,
             )
 
+        # ------------------------------------------------------------
+        # Mouse button released
+        # ------------------------------------------------------------
         elif (
             event.type == pygame.MOUSEBUTTONUP
             and event.button == 1
@@ -661,7 +910,6 @@ class MenuUI:
 
     def button_hit_rect(self, action, rect):
         view = self.button_view(action)
-
         return rect.clip(view.rect) if view else rect
 
     def reveal_level_focus(self):
@@ -677,12 +925,17 @@ class MenuUI:
         view = self.level_scroll
 
         if rect.top < view.rect.top:
-            view.move(dy=rect.top - view.rect.top)
+            view.move(
+                dy=rect.top - view.rect.top
+            )
+
         elif rect.bottom + 4 > view.rect.bottom:
-            view.move(dy=rect.bottom + 4 - view.rect.bottom)
+            view.move(
+                dy=rect.bottom + 4 - view.rect.bottom
+            )
 
     def draw_buttons(self):
-        """Draw this page's buttons, clipping scrolled ones to their view."""
+        """Draw page buttons, clipping buttons that live inside scroll views."""
         screen = self.game.screen
 
         for index, button in enumerate(self.buttons()):
@@ -696,8 +949,16 @@ class MenuUI:
                 continue
 
             clip = screen.get_clip()
-            screen.set_clip(clip.clip(view.rect))
-            self.draw_button(button, index)
+
+            screen.set_clip(
+                clip.clip(view.rect)
+            )
+
+            self.draw_button(
+                button,
+                index,
+            )
+
             screen.set_clip(clip)
 
         if self.page == "levels":
@@ -741,16 +1002,22 @@ class MenuUI:
             )
         )
 
+        # Slight pressed-button offset.
+        draw_rect = rect
+
+        if self.pressed == action and not disabled:
+            draw_rect = rect.move(0, 2)
+
         pygame.draw.rect(
             self.game.screen,
             (8, 10, 17),
-            rect.move(0, 4),
+            draw_rect.move(0, 4),
         )
 
         pygame.draw.rect(
             self.game.screen,
             fill,
-            rect,
+            draw_rect,
         )
 
         pygame.draw.rect(
@@ -762,7 +1029,7 @@ class MenuUI:
                 if primary
                 else EDGE
             ),
-            rect,
+            draw_rect,
             2 if focused else 1,
         )
 
@@ -779,15 +1046,15 @@ class MenuUI:
         if action.startswith("toggle:"):
             self.text(
                 label,
-                rect.x + 18,
-                rect.y + 6,
+                draw_rect.x + 18,
+                draw_rect.y + 6,
                 23,
             )
 
             self.text(
                 hint,
-                rect.x + 18,
-                rect.y + 29,
+                draw_rect.x + 18,
+                draw_rect.y + 29,
                 17,
                 MUTED,
             )
@@ -797,8 +1064,8 @@ class MenuUI:
             ]
 
             switch = pygame.Rect(
-                rect.right - 79,
-                rect.y + 12,
+                draw_rect.right - 79,
+                draw_rect.y + 12,
                 60,
                 26,
             )
@@ -840,22 +1107,22 @@ class MenuUI:
             self.game.screen.blit(
                 preview,
                 (
-                    rect.x + 8,
-                    rect.y + 5,
+                    draw_rect.x + 8,
+                    draw_rect.y + 5,
                 ),
             )
 
             self.text(
                 label,
-                rect.x + 13,
-                rect.bottom - 29,
+                draw_rect.x + 13,
+                draw_rect.bottom - 29,
                 24,
             )
 
             self.text(
                 ">",
-                rect.right - 24,
-                rect.bottom - 28,
+                draw_rect.right - 24,
+                draw_rect.bottom - 28,
                 24,
                 ACCENT,
             )
@@ -864,16 +1131,16 @@ class MenuUI:
             if action == "back":
                 self.text(
                     "<",
-                    rect.x + 18,
-                    rect.y + 14,
+                    draw_rect.x + 18,
+                    draw_rect.y + 14,
                     22,
                     MUTED,
                 )
 
                 self.text(
                     label,
-                    rect.x + 42,
-                    rect.y + 12,
+                    draw_rect.x + 42,
+                    draw_rect.y + 12,
                     26,
                     color,
                 )
@@ -883,23 +1150,21 @@ class MenuUI:
 
                 reserved = (
                     138
-                    if action.startswith(
-                        "quantum:history:"
-                    )
+                    if action.startswith("quantum:history:")
                     else 54
                 )
 
                 while (
                     size > 16
                     and font(size).size(label)[0]
-                    > rect.width - reserved
+                    > draw_rect.width - reserved
                 ):
                     size -= 1
 
                 self.text(
                     label,
-                    rect.x + 20,
-                    rect.y + 12,
+                    draw_rect.x + 20,
+                    draw_rect.y + 12,
                     size,
                     color,
                 )
@@ -913,15 +1178,13 @@ class MenuUI:
                 if not disabled:
                     self.text(
                         hint or ">",
-                        rect.right - hint_width - 16,
-                        rect.y + 14,
+                        draw_rect.right - hint_width - 16,
+                        draw_rect.y + 14,
                         18 if hint else 22,
                         color if primary else MUTED,
                     )
 
-                if action.startswith(
-                    "quantum:history:"
-                ):
+                if action.startswith("quantum:history:"):
                     entry = self.quantum.history_entry(
                         action
                     )
@@ -931,8 +1194,8 @@ class MenuUI:
                             "created",
                             "",
                         ),
-                        rect.x + 20,
-                        rect.y + 35,
+                        draw_rect.x + 20,
+                        draw_rect.y + 35,
                         18,
                         MUTED,
                     )
@@ -1248,9 +1511,11 @@ class MenuUI:
         ):
             self.quantum.draw()
 
+            buttons = self.buttons()
+
             self.focus = min(
                 self.focus,
-                len(self.buttons()) - 1,
+                max(0, len(buttons) - 1),
             )
 
             self.draw_buttons()
@@ -1458,6 +1723,14 @@ class MenuUI:
                         "Prepare your run",
                         f"Play all {len(self.game.available_levels)} levels in order.",
                     ),
+                    "play": (
+                        "Play",
+                        "Choose normal levels or enter a custom level seed.",
+                    ),
+                    "custom_seed": (
+                        "Custom level",
+                        "Paste a QGL share code copied from the level editor.",
+                    ),
                     "settings": (
                         "Settings",
                         "",
@@ -1494,6 +1767,77 @@ class MenuUI:
                     MUTED,
                 )
 
+                if self.page == "custom_seed":
+                    field = pygame.Rect(
+                        60,
+                        255,
+                        680,
+                        60,
+                    )
+
+                    pygame.draw.rect(
+                        screen,
+                        PANEL,
+                        field,
+                    )
+
+                    pygame.draw.rect(
+                        screen,
+                        ACCENT
+                        if self.seed_active
+                        else EDGE,
+                        field,
+                        2,
+                    )
+
+                    self.text(
+                        self.seed_text
+                        or "QGL-paste-your-code-here",
+                        80,
+                        272,
+                        24,
+                        INK
+                        if self.seed_text
+                        else MUTED,
+                    )
+
+                    # One-click clear control for quickly entering another code.
+                    clear_color = ACCENT if self.seed_text else MUTED
+
+                    pygame.draw.line(
+                        screen,
+                        clear_color,
+                        (711, 274),
+                        (729, 296),
+                        3,
+                    )
+
+                    pygame.draw.line(
+                        screen,
+                        clear_color,
+                        (729, 274),
+                        (711, 296),
+                        3,
+                    )
+
+                    self.text(
+                        "QGL- = exact level created in the editor · "
+                        "Press Enter to play",
+                        62,
+                        330,
+                        17,
+                        MUTED,
+                    )
+
+                    if self.seed_error:
+                        self.text(
+                            self.seed_error,
+                            62,
+                            430,
+                            17,
+                            RED,
+                        )
+
                 if self.page in (
                     "settings",
                     "setup",
@@ -1501,7 +1845,10 @@ class MenuUI:
                     self.text(
                         "Preferences saved automatically."
                         if self.settings_saved
-                        else "Preferences apply this session; saving is unavailable.",
+                        else (
+                            "Preferences apply this session; "
+                            "saving is unavailable."
+                        ),
                         62,
                         476,
                         17,
@@ -1509,7 +1856,9 @@ class MenuUI:
                     )
 
         self.draw_buttons()
+
         pygame.display.update()
+
         if self.page == "loading":
             self.loading_drawn = True
 
@@ -1525,13 +1874,24 @@ class MenuUI:
                 ACCENT,
             )
 
-        self.text(
-            f"LEVEL {self.game.current_level:02}",
-            362,
-            39,
-            22,
-            INK,
-        )
+        if self.game.current_share_code is not None:
+            # Keep the HUD clean: the long share code belongs in the menu,
+            # not in the top-right gameplay header.
+            self.text(
+                "CUSTOM LEVEL",
+                362,
+                39,
+                22,
+                INK,
+            )
+        else:
+            self.text(
+                f"LEVEL {self.game.current_level:02}",
+                362,
+                39,
+                22,
+                INK,
+            )
 
         pygame.draw.rect(
             self.game.screen,

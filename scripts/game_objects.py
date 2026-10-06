@@ -3,7 +3,7 @@ from collections import OrderedDict
 import enum
 import cirq
 import numpy as np
-from scripts.common_functions import add_text, font
+from scripts.common_functions import add_text
 import unitary.alpha as alpha
 from scripts.flip_phase import FlipPhase
 from scripts.swap import SwapEffect
@@ -139,14 +139,7 @@ class LootableObject(BaseObject):
         self.rect.x = x * BLOCK_SIZE
         self.rect.y = y * BLOCK_SIZE
         self.item = item
-        # Centre the gate name on the lid so multi-letter names (SWAP, CNOT)
-        # stay inside the box.
-        add_text(
-            self,
-            item,
-            (self.rect.width - font(24).size(item)[0]) // 2,
-            box_rect.height,
-        )
+        add_text(self, item, box_rect.width, box_rect.height)
 
     def function(self, game, x, y):
         """Adds the item to the player's hotbar and removes the object."""
@@ -159,8 +152,7 @@ class LootableObject(BaseObject):
 class QuantumObject(BaseObject, alpha.QuantumObject):
     """Represents a quantum object in the game, currently only pillars."""
 
-    def __init__(self, x, y, game):
-        """Initializes the quantum object with position and basic state."""
+    def __init__(self, x, y, game, state=None):
         BaseObject.__init__(self, x, y)
         alpha.QuantumObject.__init__(
             self,
@@ -183,7 +175,11 @@ class QuantumObject(BaseObject, alpha.QuantumObject):
         self.colorImage = pygame.Surface(
             self.image.get_size()
         ).convert_alpha()
-        self.colorImage.fill((255, 255, 255, 255))
+
+        self.colorImage.fill(
+            (255, 255, 255, 255)
+        )
+
         self.image.blit(
             self.colorImage,
             (0, 0),
@@ -196,16 +192,71 @@ class QuantumObject(BaseObject, alpha.QuantumObject):
 
         game.quantum_grid.add_object(self)
 
+        if state is not None:
+            def amplitude(value):
+                if isinstance(value, dict):
+                    return complex(
+                        value.get("real", 0.0),
+                        value.get("imag", 0.0)
+                    )
+                return complex(float(value), 0.0)
+
+            amplitude_x = amplitude(state["x"])
+            amplitude_y = amplitude(state["y"])
+
+            matrix = cirq.MatrixGate(
+                np.array(
+                    [
+                        [
+                            amplitude_x,
+                            -amplitude_y.conjugate()
+                        ],
+                        [
+                            amplitude_y,
+                            amplitude_x.conjugate()
+                        ],
+                    ],
+                    dtype=complex,
+                )
+            )
+
+            game.quantum_grid.add_effect(
+                [matrix.on(self.qubit)]
+            )
+
         self.states = game.quantum_grid.get_probabilities(
             [self],
             PEEK_COUNT
         )[0]
 
+        # IMPORTANT: apply the initial quantum state to the visual.
+        self.update_visual()
+
         self.group = game.grouping_system.add(self)
+
+    def update_visual(self):
+        """Update the pillar appearance from its current quantum state."""
+
+        color_alpha = 255
+
+        self.color = (
+            int(255 * self.states[0]),
+            int(self.phase_Z) * 220,
+            int(255 * self.states[1])
+        )
+
+        if self.states[0] == 1.0:
+            color_alpha = 150
+            self.color = (255, 255, 255)
+
+        self.change_color(
+            pillar_image,
+            self.color,
+            color_alpha
+        )
 
     def apply_effect(self, game, effect=None):
         """Applies a quantum effect and updates the object's appearance."""
-        color_alpha = 255
 
         if effect == alpha.Superposition() and self.states[1] == 1.0:
             self.phase_Z = True
@@ -219,8 +270,13 @@ class QuantumObject(BaseObject, alpha.QuantumObject):
                 reference_obj = game.objects[
                     str(effect[1][0]) + ',' + str(effect[1][1])
                 ]
-                alpha.quantum_if(self).apply(effect[0])(reference_obj)
-                game.grouping_system.join(self, reference_obj)
+                alpha.quantum_if(self).apply(effect[0])(
+                    reference_obj
+                )
+                game.grouping_system.join(
+                    self,
+                    reference_obj
+                )
                 reference_obj.apply_effect(game)
             else:
                 effect(self)
@@ -239,23 +295,11 @@ class QuantumObject(BaseObject, alpha.QuantumObject):
             [self],
             PEEK_COUNT
         )
+
         self.states = histogram[0]
 
-        self.color = (
-            int(255 * self.states[0]),
-            int(self.phase_Z) * 220,
-            int(255 * self.states[1])
-        )
-
-        if self.states[0] == 1.0:
-            color_alpha = 150
-            self.color = (255, 255, 255)
-
-        self.change_color(
-            pillar_image,
-            self.color,
-            color_alpha
-        )
+        # Update the visual after the state changes.
+        self.update_visual()
 
     def function(self, game, x, y):
         """Passable only when the pillar is exactly in a pure |0> state."""
