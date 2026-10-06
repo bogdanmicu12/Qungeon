@@ -1,0 +1,31 @@
+{
+  "tiles": {
+    "(2, 4)": "START",
+    "(3, 4)": "EMPTY",
+    "(4, 4)": "EMPTY",
+    "(5, 4)": "EMPTY",
+    "(6, 4)": "EMPTY",
+    "(7, 4)": "EMPTY",
+    "(8, 4)": "EMPTY",
+    "(9, 4)": "END"
+  },
+  "objects": {},
+  "quantum_objects": [
+    "(5, 4)"
+  ],
+  "pillar_states": {
+    "(5, 4)": {
+      "x": {
+        "real": 1.0,
+        "imag": 0.0
+      },
+      "y": {
+        "real": 0.0,
+        "imag": 0.0
+      }
+    }
+  },
+  "editor_created": true,
+  "gates": {},
+  "effects": []
+}
