@@ -18,6 +18,8 @@ MUTED = (154, 158, 177)
 ACCENT = (182, 164, 242)
 MINT = (161, 220, 189)
 RED = (233, 149, 159)
+LEVEL_VIEWPORT = pygame.Rect(48, 190, 704, 284)
+LEVEL_SCROLL_TRACK = pygame.Rect(744, 190, 8, 284)
 DEFAULT_SETTINGS = {
     "decoherence": False,
     "entanglement_guides": True,
@@ -68,6 +70,9 @@ class MenuUI:
         self.page = "main"
         self.return_page = "main"   # where Help/Settings go back to
         self.focus = 0
+        self.level_scroll = 0
+        self.level_scroll_dragging = False
+        self.level_scroll_drag_offset = 0
         self.pressed = None
         self.pending = None      # level choice waiting on the quantum stack
         self.loading_from = "main"   # where to go back to if it will not load
@@ -109,6 +114,9 @@ class MenuUI:
         self.page = page
         self.focus = 0
         self.pressed = None
+        if page == "levels":
+            self.level_scroll = 0
+            self.level_scroll_dragging = False
         self.game.last_tick = pygame.time.get_ticks()
 
     def buttons(self):
@@ -153,7 +161,8 @@ class MenuUI:
             result = []
             for index, level in enumerate(self.game.available_levels):
                 result.append((f"level:{level}", pygame.Rect(60 + (index % 4) * 174,
-                              207 + (index // 4) * 128, 158, 112), f"Level {level:02}", ""))
+                              207 + (index // 4) * 128 - self.level_scroll,
+                              158, 112), f"Level {level:02}", ""))
             return result + [("back", pygame.Rect(60, 491, 200, 44), "Back", "")]
         if self.page == "help":
             return [("back", pygame.Rect(60, 491, 200, 44), "Back", "")]
@@ -267,6 +276,29 @@ class MenuUI:
         if not buttons:
             return
         self.focus = min(self.focus, len(buttons) - 1)
+        if self.page == "levels" and event.type == pygame.MOUSEWHEEL:
+            self.level_scroll = max(0, min(self.level_scroll - event.y * 64,
+                                           self.level_scroll_limit()))
+            self.pressed = None
+            return
+        if self.page == "levels":
+            if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                thumb = self.level_scroll_thumb()
+                if LEVEL_SCROLL_TRACK.collidepoint(event.pos):
+                    self.level_scroll_dragging = True
+                    self.level_scroll_drag_offset = (
+                        event.pos[1] - thumb.top if thumb.collidepoint(event.pos)
+                        else thumb.height // 2
+                    )
+                    self.set_level_scroll_from_thumb(event.pos[1])
+                    self.pressed = None
+                    return
+            elif event.type == pygame.MOUSEMOTION and self.level_scroll_dragging:
+                self.set_level_scroll_from_thumb(event.pos[1])
+                return
+            elif event.type == pygame.MOUSEBUTTONUP and event.button == 1 and self.level_scroll_dragging:
+                self.level_scroll_dragging = False
+                return
         if event.type == pygame.KEYDOWN:
             if event.key in (pygame.K_TAB, pygame.K_DOWN, pygame.K_s, pygame.K_d, pygame.K_RIGHT):
                 step = -1 if event.key == pygame.K_TAB and getattr(event, "mod", 0) & pygame.KMOD_SHIFT else 1
@@ -275,6 +307,8 @@ class MenuUI:
                 self.focus = (self.focus - 1) % len(buttons)
             elif event.key in (pygame.K_RETURN, pygame.K_SPACE):
                 self.activate(buttons[self.focus][0])
+            if self.page == "levels":
+                self.scroll_level_focus_into_view(buttons)
         elif event.type == pygame.MOUSEMOTION:
             for index, (action, rect, _, _) in enumerate(buttons):
                 if self.button_hit_rect(action, rect).collidepoint(event.pos):
@@ -291,7 +325,44 @@ class MenuUI:
     def button_hit_rect(self, action, rect):
         if self.page == "quantum_history" and action.startswith("quantum:history:"):
             return rect.clip(self.quantum.history_scroll.rect)
+        if self.page == "levels" and action.startswith("level:"):
+            return rect.clip(LEVEL_VIEWPORT)
         return rect
+
+    def level_scroll_limit(self):
+        rows = (len(self.game.available_levels) + 3) // 4
+        content_bottom = 207 + rows * 128 - 16
+        return max(0, content_bottom - LEVEL_VIEWPORT.bottom)
+
+    def level_scroll_thumb(self):
+        rows = (len(self.game.available_levels) + 3) // 4
+        content_height = max(LEVEL_VIEWPORT.height, rows * 128 - 16)
+        thumb_height = max(36, round(LEVEL_SCROLL_TRACK.height * LEVEL_VIEWPORT.height / content_height))
+        thumb_height = min(LEVEL_SCROLL_TRACK.height, thumb_height)
+        travel = LEVEL_SCROLL_TRACK.height - thumb_height
+        limit = self.level_scroll_limit()
+        offset = round(travel * self.level_scroll / limit) if limit else 0
+        return pygame.Rect(LEVEL_SCROLL_TRACK.x, LEVEL_SCROLL_TRACK.y + offset,
+                           LEVEL_SCROLL_TRACK.width, thumb_height)
+
+    def set_level_scroll_from_thumb(self, mouse_y):
+        thumb = self.level_scroll_thumb()
+        travel = LEVEL_SCROLL_TRACK.height - thumb.height
+        if travel <= 0:
+            return
+        offset = max(0, min(mouse_y - self.level_scroll_drag_offset - LEVEL_SCROLL_TRACK.y, travel))
+        self.level_scroll = round(offset * self.level_scroll_limit() / travel)
+
+    def scroll_level_focus_into_view(self, buttons):
+        action = buttons[self.focus][0]
+        if not action.startswith("level:"):
+            return
+        rect = buttons[self.focus][1]
+        if rect.top < LEVEL_VIEWPORT.top:
+            self.level_scroll -= LEVEL_VIEWPORT.top - rect.top
+        elif rect.bottom > LEVEL_VIEWPORT.bottom:
+            self.level_scroll += rect.bottom - LEVEL_VIEWPORT.bottom
+        self.level_scroll = max(0, min(self.level_scroll, self.level_scroll_limit()))
 
     def draw_button(self, button, index):
         action, rect, label, hint = button
@@ -473,8 +544,22 @@ class MenuUI:
 
                 elif self.page in ("settings", "setup"):
                     self.text("Preferences saved automatically." if self.settings_saved else "Preferences apply this session; saving is unavailable.", 62, 476, 17, MUTED)
-        for index, button in enumerate(self.buttons()):
-            self.draw_button(button, index)
+        buttons = self.buttons()
+        for index, button in enumerate(buttons):
+            if self.page == "levels" and button[0].startswith("level:"):
+                if not button[1].colliderect(LEVEL_VIEWPORT):
+                    continue
+                clip = screen.get_clip()
+                screen.set_clip(clip.clip(LEVEL_VIEWPORT))
+                self.draw_button(button, index)
+                screen.set_clip(clip)
+            else:
+                self.draw_button(button, index)
+        if self.page == "levels":
+            pygame.draw.rect(screen, EDGE, LEVEL_SCROLL_TRACK, border_radius=4)
+            thumb = self.level_scroll_thumb().inflate(-2, 0)
+            pygame.draw.rect(screen, ACCENT if self.level_scroll_dragging else MINT,
+                             thumb, border_radius=3)
         pygame.display.update()
         if self.page == "loading":
             self.loading_drawn = True
