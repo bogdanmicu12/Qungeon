@@ -468,17 +468,11 @@ class MenuUI:
                 }[self.page]
                 self.text(heading, 60, 112, 49)
                 self.text(subheading, 62, 164, 24, MUTED)
-<<<<<<< HEAD
-
                 if self.page == "help":
                     self.draw_help()
 
                 elif self.page in ("settings", "setup"):
-                    self.text("Preferences saved automatically." if self.settings_saved else "Preferences apply this session; saving is unavailable.", 62, 463, 19, MUTED)
-=======
-                if self.page in ("settings", "setup"):
                     self.text("Preferences saved automatically." if self.settings_saved else "Preferences apply this session; saving is unavailable.", 62, 476, 17, MUTED)
->>>>>>> 496647d1190d54ba1e93613be28507cf974c7b48
         for index, button in enumerate(self.buttons()):
             self.draw_button(button, index)
         pygame.display.update()
@@ -496,13 +490,9 @@ class MenuUI:
 
     def draw_hud(self):
         self.draw_header()
-<<<<<<< HEAD
-        self.text(self.level_label(), 362, 39, 22, INK)
-=======
         if pygame.time.get_ticks() < self.game.quantum_notice_until:
             self.text(self.game.quantum_notice, 40, 89, 18, self.game.quantum_notice_color)
-        self.text(f"LEVEL {self.game.current_level:02}", 362, 39, 22, INK)
->>>>>>> 496647d1190d54ba1e93613be28507cf974c7b48
+        self.text(self.level_label(), 362, 39, 22, INK)
         pygame.draw.rect(self.game.screen, PANEL, (652, 29, 108, 35))
         pygame.draw.rect(self.game.screen, EDGE, (652, 29, 108, 35), 1)
         self.text("ESC  Pause", 665, 39, 20, MUTED)
