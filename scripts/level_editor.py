@@ -2,14 +2,16 @@
 
 import json
 import os
+import math
+import copy
 from pathlib import Path
 
 import pygame
 
 from scripts.common_functions import font
 from scripts.level_validation import validate_level, LevelError, parse_pos
-from scripts.game_objects import gates as GAME_GATES
 from scripts.level_share import encode_level, decode_level, PREFIX as SHARE_PREFIX
+from scripts.level_check_job import LevelCheckJob
 
 
 BG = (17, 19, 30)
@@ -109,6 +111,7 @@ class LevelEditor:
         self.state_x_text = "1"
         self.state_y_text = "0"
         self.state_field = None
+        self.state_select_all = False
 
         self.level_text = str(
             self.next_level_number()
@@ -121,9 +124,17 @@ class LevelEditor:
         self.text_active = False
 
         self.status = "New level"
+        self.status_error = False
         self.status_time = 0
 
         self.dragging_paint = False
+        self.validation = None
+        self.validation_job = None
+        self.validation_drawn = False
+        self.checker_prepared = False
+        self.pillar_previews = {}
+        self.pressed_action = None
+        self.pressed_at = 0
 
         self.reset()
 
@@ -139,6 +150,9 @@ class LevelEditor:
         return max(nums, default=0) + 1
 
     def reset(self):
+        self.cancel_validation()
+        self.checker_prepared = False
+        self.pillar_previews.clear()
         self.tiles = {}
         self.objects = {}
         self.quantum_objects = set()
@@ -151,10 +165,12 @@ class LevelEditor:
         self.state_x_text = "1"
         self.state_y_text = "0"
         self.state_field = None
+        self.state_select_all = False
 
         self.share_code = ""
 
         self.status = "New level"
+        self.status_error = False
 
     def level_number(self):
         try:
@@ -318,6 +334,7 @@ class LevelEditor:
         )
 
         self.state_field = None
+        self.state_select_all = False
 
     @staticmethod
     def amplitude_parts(value):
@@ -454,6 +471,8 @@ class LevelEditor:
         self.state_y_text = (
             self.format_amplitude(y)
         )
+        self.state_field = None
+        self.state_select_all = False
 
         self.mark_modified()
         self.refresh_share_code()
@@ -462,6 +481,25 @@ class LevelEditor:
             f"State {self.format_amplitude(x)}|0> + "
             f"{self.format_amplitude(y)}|1> set"
         )
+
+    def pillar_preview(self, pos):
+        """Render the applied amplitudes without importing the quantum stack."""
+        state = self.pillar_states.get(self.key(pos), STATE_DEFAULT)
+        xr, xi = self.amplitude_parts(state["x"])
+        yr, yi = self.amplitude_parts(state["y"])
+        key = (xr, xi, yr, yi)
+        if key not in self.pillar_previews:
+            zero, one = xr * xr + xi * xi, yr * yr + yi * yi
+            total = zero + one
+            zero, one = (zero / total, one / total) if total else (1.0, 0.0)
+            color = (int(255 * zero), 0, int(255 * one))
+            alpha_value = 255
+            if zero >= 1.0 - 1e-9:
+                color, alpha_value = (255, 255, 255), 150
+            image = pygame.transform.scale(self.images["pillar"], (CELL, CELL)).convert_alpha()
+            image.fill((*color, alpha_value), special_flags=pygame.BLEND_RGBA_MULT)
+            self.pillar_previews[key] = (image, zero, one)
+        return self.pillar_previews[key]
 
     def buttons(self):
         result = [
@@ -525,101 +563,42 @@ class LevelEditor:
             )
 
         result += [
-            (
-                "STATE_APPLY",
-                pygame.Rect(
-                    492,
-                    445,
-                    160,
-                    30,
-                ),
-                "Set state",
-            ),
-            (
-                "STATE_CLEAR",
-                pygame.Rect(
-                    662,
-                    445,
-                    90,
-                    30,
-                ),
-                "Reset",
-            ),
-            (
-                "NEW",
-                pygame.Rect(
-                    492,
-                    497,
-                    82,
-                    34,
-                ),
-                "New",
-            ),
-            (
-                "LOAD",
-                pygame.Rect(
-                    581,
-                    497,
-                    82,
-                    34,
-                ),
-                "Load",
-            ),
-            (
-                "SAVE",
-                pygame.Rect(
-                    670,
-                    497,
-                    82,
-                    34,
-                ),
-                "Save",
-            ),
-            (
-                "BACK",
-                pygame.Rect(
-                    492,
-                    536,
-                    82,
-                    34,
-                ),
-                "Back",
-            ),
-            (
-                "TEST",
-                pygame.Rect(
-                    581,
-                    536,
-                    171,
-                    34,
-                ),
-                "Save & test",
-            ),
+            ("STATE_ZERO", pygame.Rect(690, 365, 62, 32), "Use |0>"),
+            ("STATE_ONE", pygame.Rect(690, 404, 62, 32), "Use |1>"),
+            ("STATE_APPLY", pygame.Rect(492, 445, 160, 30), "Set state"),
+            ("STATE_CLEAR", pygame.Rect(662, 445, 90, 30), "Reset"),
         ]
-
+        result += [
+            (action, pygame.Rect(492 + index * 66, 497, 62, 34), label)
+            for index, (action, label) in enumerate((
+                ("NEW", "New"), ("LOAD", "Load"), ("SAVE", "Save"), ("BACK", "Back"),
+            ))
+        ]
+        result += [
+            ("SAVE_EXIT", pygame.Rect(492, 536, 171, 34), "Save & exit"),
+            ("TEST", pygame.Rect(670, 536, 82, 34), "Test"),
+        ]
         return result
 
     def copy_share(self):
         """Copy the current exact editor share code to the clipboard."""
+        self.request_validation("COPY_SHARE")
 
-        code = self.share_code.strip()
+    def copy_validated_share(self, code):
+        import sys
+        if sys.platform == "emscripten":
+            import asyncio
+            from js import window
 
-        if not code:
-            try:
-                code = encode_level(
-                    self.data()
-                )
+            async def copy_to_browser():
+                try:
+                    await window.navigator.clipboard.writeText(code)
+                    self.set_status("Share code copied to clipboard")
+                except Exception:
+                    self.set_status("Clipboard unavailable. Your validated share code is ready.")
 
-                self.share_code = code
-
-            except (
-                ValueError,
-                LevelError,
-            ):
-                self.set_status(
-                    "Create a valid level first"
-                )
-                return
+            asyncio.create_task(copy_to_browser())
+            return
 
         if os.name == "nt":
             try:
@@ -697,8 +676,9 @@ class LevelEditor:
 
         return None
 
-    def set_status(self, text):
+    def set_status(self, text, error=False):
         self.status = text
+        self.status_error = error
         self.status_time = (
             pygame.time.get_ticks()
         )
@@ -816,6 +796,8 @@ class LevelEditor:
         return True
 
     def activate(self, action):
+        self.pressed_action = action
+        self.pressed_at = pygame.time.get_ticks()
         if action in (
             "EMPTY",
             "WALL",
@@ -837,6 +819,17 @@ class LevelEditor:
         ):
             self.tool = action
             self.effect_tool = None
+            return
+
+        if action in ("STATE_ZERO", "STATE_ONE"):
+            if self.selected is None or self.key(self.selected) not in self.quantum_objects:
+                self.set_status("Select a pillar first")
+                return
+            one = action == "STATE_ONE"
+            self.state_x_text, self.state_y_text = ("0", "1") if one else ("1", "0")
+            self.state_field = None
+            self.state_select_all = False
+            self.set_status(f"Selected |{int(one)}>. Click Set state to apply.")
             return
 
         if action == "STATE_APPLY":
@@ -880,20 +873,14 @@ class LevelEditor:
         elif action == "SAVE":
             self.save(False)
 
+        elif action == "SAVE_EXIT":
+            self.request_validation("SAVE_EXIT")
+
         elif action == "TEST":
-            if self.save(False):
-                n = self.level_number()
-
-                self.game.available_levels = (
-                    self.game.find_levels()
-                )
-
-                self.game.start_level(
-                    n,
-                    "single",
-                )
+            self.request_validation("TEST")
 
         elif action == "BACK":
+            self.cancel_validation()
             self.game.menu.open(
                 "main"
             )
@@ -941,6 +928,10 @@ class LevelEditor:
         if event.type == pygame.KEYDOWN:
 
             if self.state_field:
+                attribute = "state_x_text" if self.state_field == "x" else "state_y_text"
+                if event.key == pygame.K_a and getattr(event, "mod", 0) & (pygame.KMOD_CTRL | pygame.KMOD_META):
+                    self.state_select_all = True
+                    return
                 if event.key in (
                     pygame.K_RETURN,
                     pygame.K_KP_ENTER,
@@ -953,6 +944,10 @@ class LevelEditor:
                     return
 
                 if event.key == pygame.K_BACKSPACE:
+                    if self.state_select_all:
+                        setattr(self, attribute, "")
+                        self.state_select_all = False
+                        return
                     if self.state_field == "x":
                         self.state_x_text = (
                             self.state_x_text[:-1]
@@ -965,14 +960,18 @@ class LevelEditor:
                     return
 
                 if (
-                    event.unicode
+                    event.unicode and event.unicode
                     in "0123456789.-+ijIJ()eE"
-                    and len(
+                    and (self.state_select_all or len(
                         self.state_x_text
                         if self.state_field == "x"
                         else self.state_y_text
-                    ) < 16
+                    ) < 16)
                 ):
+                    if self.state_select_all:
+                        setattr(self, attribute, event.unicode)
+                        self.state_select_all = False
+                        return
                     if self.state_field == "x":
                         self.state_x_text += (
                             event.unicode
@@ -1010,6 +1009,7 @@ class LevelEditor:
                 return
 
             if event.key == pygame.K_ESCAPE:
+                self.cancel_validation()
                 self.game.menu.open(
                     "main"
                 )
@@ -1040,6 +1040,8 @@ class LevelEditor:
                 event.pos
             ):
                 self.text_active = True
+                self.state_field = None
+                self.state_select_all = False
                 return
 
             self.text_active = False
@@ -1071,7 +1073,11 @@ class LevelEditor:
                     event.pos
                 ):
                     self.state_field = field_id
+                    self.state_select_all = True
                     return
+
+            self.state_field = None
+            self.state_select_all = False
 
             # Initial gate +/- controls.
             for i, gate in enumerate(
@@ -1252,28 +1258,71 @@ class LevelEditor:
         return data
 
     def save(self, quiet=False):
-        n = self.level_number()
+        """Queue a checked save; completion is handled on a later frame."""
+        self.request_validation("SAVE")
 
-        if n is None:
+    def request_validation(self, action):
+        if self.validation is not None:
+            return
+        n = self.level_number()
+        if n is None and action != "COPY_SHARE":
             self.set_status(
                 "Enter a valid level number"
             )
-            return False
+            return
+        self.validation = {"action": action, "number": n, "data": copy.deepcopy(self.data())}
+        self.validation_drawn = False
+        self.set_status("Checking level validity")
 
-        data = self.data()
+    def cancel_validation(self):
+        if self.validation_job is not None:
+            self.validation_job.cancel()
+        self.validation = None
+        self.validation_job = None
+        self.validation_drawn = False
 
+    def update_validation(self):
+        if self.validation is None or not self.validation_drawn:
+            return
+        if self.game.menu.page != "editor":
+            self.cancel_validation()
+            return
         try:
-            validate_level(
-                data,
-                f"levels/{n}.json",
-            )
+            if self.validation_job is None:
+                self.validation_job = LevelCheckJob(self.validation["data"])
+                return
+            result = self.validation_job.poll()
+            if result is None:
+                phase = getattr(self.validation_job, "phase", "checking")
+                self.set_status(
+                    "Preparing level checker (first use; downloading Python and quantum libraries)"
+                    if phase == "preparing" else "Checking level validity (searching for a solution)"
+                )
+                return
+        except Exception as error:
+            self.cancel_validation()
+            self.set_status(f"Level check failed: {error}")
+            return
+        pending = self.validation
+        self.cancel_validation()
+        if pending["data"] != self.data() or pending["number"] != self.level_number():
+            self.set_status("Level changed during check. Please check again.")
+            return
+        if result["solvable"] is not True:
+            self.set_status(result["message"], error=True)
+            return
+        code = encode_level(pending["data"])
+        if pending["action"] == "COPY_SHARE":
+            self.share_code = code
+            self.copy_validated_share(code)
+            return
+        if self.save_validated(pending["number"], pending["data"]):
+            if pending["action"] == "SAVE_EXIT":
+                self.game.menu.open("main")
+            elif pending["action"] == "TEST":
+                self.game.menu.activate(f"level:{pending['number']}")
 
-        except LevelError as err:
-            self.set_status(
-                str(err)
-            )
-            return False
-
+    def save_validated(self, n, data):
         try:
             os.makedirs(
                 "./levels",
@@ -1566,86 +1615,8 @@ class LevelEditor:
                 key = self.key(pos)
 
                 if key in self.quantum_objects:
-                    pillar_img = (
-                        pygame.transform.scale(
-                            self.images["pillar"],
-                            (CELL, CELL),
-                        ).convert_alpha()
-                    )
-
-                    state = self.pillar_states.get(
-                        key,
-                        STATE_DEFAULT,
-                    )
-
-                    xr, xi = self.amplitude_parts(
-                        state["x"]
-                    )
-
-                    yr, yi = self.amplitude_parts(
-                        state["y"]
-                    )
-
-                    prob_zero = (
-                        xr * xr
-                        + xi * xi
-                    )
-
-                    prob_one = (
-                        yr * yr
-                        + yi * yi
-                    )
-
-                    prob_zero = max(
-                        0.0,
-                        min(
-                            1.0,
-                            prob_zero,
-                        ),
-                    )
-
-                    prob_one = max(
-                        0.0,
-                        min(
-                            1.0,
-                            prob_one,
-                        ),
-                    )
-
-                    color = (
-                        int(255 * prob_zero),
-                        0,
-                        int(255 * prob_one),
-                    )
-
-                    if prob_zero >= 1.0 - 1e-9:
-                        color = (
-                            255,
-                            255,
-                            255,
-                        )
-                        alpha_value = 150
-                    else:
-                        alpha_value = 255
-
-                    color_layer = pygame.Surface(
-                        (CELL, CELL)
-                    ).convert_alpha()
-
-                    color_layer.fill(
-                        (*color, alpha_value)
-                    )
-
-                    pillar_img.blit(
-                        color_layer,
-                        (0, 0),
-                        special_flags=pygame.BLEND_RGBA_MULT,
-                    )
-
-                    screen.blit(
-                        pillar_img,
-                        rect,
-                    )
+                    pillar_img, _, _ = self.pillar_preview(pos)
+                    screen.blit(pillar_img, rect)
 
                 if key in self.objects:
                     screen.blit(
@@ -1678,12 +1649,9 @@ class LevelEditor:
             active = (
                 action == self.tool
             )
+            pressed = action == self.pressed_action and pygame.time.get_ticks() - self.pressed_at < 300
 
-            fill = (
-                ACCENT
-                if active
-                else PANEL
-            )
+            fill = MINT if pressed else ACCENT if active else PANEL
 
             pygame.draw.rect(
                 screen,
@@ -1695,21 +1663,29 @@ class LevelEditor:
                 screen,
                 (
                     INK
-                    if active
+                    if active or pressed
                     else EDGE
                 ),
                 rect,
                 1,
             )
 
+            checking = self.validation is not None and self.validation["action"] == action
+            if checking:
+                center = (rect.x + 12, rect.centery)
+                angle = pygame.time.get_ticks() / 160
+                pygame.draw.arc(screen, ACCENT,
+                                pygame.Rect(center[0] - 5, center[1] - 5, 10, 10),
+                                angle, angle + math.pi * 1.5, 2)
+            progress = "Checking level validity" if rect.width >= 171 else "Checking" if rect.width >= 82 else "..."
             self.draw_text(
-                label,
-                rect.x + 8,
+                progress if checking else label,
+                rect.x + (24 if checking else 8),
                 rect.y + 7,
-                15,
+                13 if checking else 15,
                 (
                     BG
-                    if active
+                    if active or pressed
                     else INK
                 ),
             )
@@ -1737,7 +1713,7 @@ class LevelEditor:
         # Pillar state.
         # ---------------------------------------------------------
         self.draw_text(
-            "Pillar state",
+            "Amplitudes: |0>, |1>",
             492,
             348,
             17,
@@ -1768,19 +1744,16 @@ class LevelEditor:
             2,
         )
 
+        if self.state_field == "x" and self.state_select_all and self.state_x_text:
+            width, height = font(15).size(self.state_x_text)
+            pygame.draw.rect(screen, ACCENT,
+                             (x_rect.x + 6, x_rect.y + 5, min(width + 4, x_rect.width - 12), height + 4))
         self.draw_text(
             self.state_x_text,
             x_rect.x + 8,
             x_rect.y + 7,
             15,
-        )
-
-        self.draw_text(
-            "|0>",
-            690,
-            371,
-            16,
-            INK,
+            BG if self.state_field == "x" and self.state_select_all else INK,
         )
 
         y_rect = pygame.Rect(
@@ -1807,20 +1780,19 @@ class LevelEditor:
             2,
         )
 
+        if self.state_field == "y" and self.state_select_all and self.state_y_text:
+            width, height = font(15).size(self.state_y_text)
+            pygame.draw.rect(screen, ACCENT,
+                             (y_rect.x + 6, y_rect.y + 5, min(width + 4, y_rect.width - 12), height + 4))
         self.draw_text(
             self.state_y_text,
             y_rect.x + 8,
             y_rect.y + 7,
             15,
+            BG if self.state_field == "y" and self.state_select_all else INK,
         )
 
-        self.draw_text(
-            "|1>",
-            690,
-            410,
-            16,
-            INK,
-        )
+        self.draw_text("Use presets or edit amplitudes, then Set state.", 492, 480, 13, MUTED)
 
         # ---------------------------------------------------------
         # Initial gates.
@@ -1929,39 +1901,33 @@ class LevelEditor:
             MUTED,
         )
 
-        selected_state = (
-            self.pillar_states.get(
-                self.key(
-                    self.selected
-                ),
-                STATE_DEFAULT,
-            )
-            if self.selected
-            else None
-        )
-
-        state_text = "|0>"
-
-        if selected_state:
-            state_text = (
-                f"{self.format_amplitude(selected_state['x'])}|0> + "
-                f"{self.format_amplitude(selected_state['y'])}|1>"
-            )
+        if self.selected and self.key(self.selected) in self.quantum_objects:
+            preview, zero, one = self.pillar_preview(self.selected)
+            screen.blit(pygame.transform.scale(preview, (24, 24)), (724, 341))
+            self.draw_text(f"P(0): {zero:.0%}  P(1): {one:.0%}", 28, 540, 14, MUTED)
 
         # ---------------------------------------------------------
         # Status.
         # ---------------------------------------------------------
         self.draw_text(
             self.status,
-            492,
+            28,
             580,
             14,
             (
-                MINT
-                if "failed"
-                not in self.status.lower()
-                else RED
+                ACCENT if self.validation is not None else
+                RED if self.status_error or any(word in self.status.lower() for word in
+                           ("failed", "not valid", "could not", "search limit", "changed")) else MINT
             ),
         )
 
         pygame.display.update()
+        if not self.checker_prepared:
+            try:
+                LevelCheckJob.prepare()
+                self.checker_prepared = True
+            except Exception:
+                # A failed warmup is retried when the player requests a check.
+                pass
+        if self.validation is not None:
+            self.validation_drawn = True

@@ -1053,10 +1053,12 @@ class Game:
         # A pending level choice may be waiting for the loading screen to
         # appear before the quantum stack is imported.
         self.menu.update()
+        self.editor.update_validation()
 
         self.handle_events()
 
         if not self.running:
+            self.editor.cancel_validation()
             return
 
         if self.menu.page == "playing":

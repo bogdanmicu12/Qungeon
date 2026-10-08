@@ -5,20 +5,8 @@ import cirq
 import numpy as np
 from scripts.common_functions import add_text
 import unitary.alpha as alpha
-from scripts.flip_phase import FlipPhase
-from scripts.swap import SwapEffect
-from math import acos, sqrt, pi
+from scripts.quantum_rules import gates, control_gates, PURE_ZERO_TOL, TileType
 
-
-gates = {
-    'X': alpha.Flip(),
-    'H': alpha.Superposition(),
-    'Z': alpha.Phase(),
-    'RotY': FlipPhase(-2 * acos(1 / sqrt(3)) / pi),
-    'CNOT': None,
-    'CHAD': None,
-    'SWAP': SwapEffect()
-}
 
 gate_info_image = {
     'X': pygame.image.load('./assets/x-gate.png'),
@@ -29,8 +17,6 @@ gate_info_image = {
     'CHAD': pygame.image.load('./assets/chad-gate.png'),
     'SWAP': pygame.image.load('./assets/swap-gate.png')
 }
-
-control_gates = ['CNOT', 'CHAD', 'SWAP']
 
 # Load game object images
 tile_image = pygame.image.load('./assets/tile.png')
@@ -43,12 +29,6 @@ x_gate_image = pygame.image.load('./assets/x-gate.png')
 SCALE_FACTOR = 4
 BLOCK_SIZE = 16 * SCALE_FACTOR
 PEEK_COUNT = 1000
-
-# A pillar is walkable only when it is exactly |0>. We read that from the
-# world's exact state vector rather than the 1000-shot peek, so the
-# decision is deterministic; PURE_ZERO_TOL just absorbs float rounding.
-PURE_ZERO_TOL = 1e-6
-
 
 def exact_probability_zero(world, obj):
     """Exact P(|0>) for a qubit, from the world's state vector.
@@ -80,14 +60,6 @@ class Pillar(enum.Enum):
     """Enumeration for quantum object states."""
     EMPTY = 0
     FULL = 1
-
-
-class TileType(enum.Enum):
-    """Enumeration for different tile types."""
-    EMPTY = 0
-    START = 1
-    END = 2
-    WALL = 4
 
 
 class BaseObject(pygame.sprite.Sprite):

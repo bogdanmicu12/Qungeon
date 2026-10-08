@@ -214,9 +214,9 @@ class MenuUI:
                     action,
                     pygame.Rect(
                         60,
-                        300 + index * 58,
+                        300 + index * 50,
                         326,
-                        46,
+                        40,
                     ),
                     label,
                     hint,
@@ -235,9 +235,9 @@ class MenuUI:
                     "quantum_history",
                     pygame.Rect(
                         482,
-                        532,
+                        500,
                         258,
-                        46,
+                        40,
                     ),
                     "Hardware runs",
                     "",
@@ -546,7 +546,7 @@ class MenuUI:
             "load_seed",
         }
 
-        if not released and action in gameplay_actions:
+        if not released and (action in gameplay_actions or action.startswith("level:")):
             if not self.game.gameplay_ready():
                 self.pending = action
                 self.loading_from = self.page

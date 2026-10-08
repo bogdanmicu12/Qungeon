@@ -68,10 +68,8 @@ import cirq
 import numpy as np
 import unitary.alpha as alpha
 
-from scripts.game_objects import (
+from scripts.quantum_rules import (
     PURE_ZERO_TOL,
-    LootableObject,
-    QuantumObject,
     TileType,
     control_gates,
     gates,
@@ -501,6 +499,8 @@ def snapshot(game):
     level file, so a mid-play state - gates already spent, loot already taken,
     pillars already entangled - is captured exactly.
     """
+    from scripts.game_objects import LootableObject, QuantumObject
+
     tiles = {
         position: tile.type
         for position, tile in game.tiles.items()
@@ -543,6 +543,8 @@ def _snapshot_blocks(game):
     Pillars the circuit never touched are still |0> and are emitted directly,
     which also keeps them out of the simulation's width.
     """
+    from scripts.game_objects import QuantumObject
+
     world = game.quantum_grid
 
     pillars = [
@@ -1120,13 +1122,26 @@ def state_from_level_data(level_data):
         for position, name in level_data["objects"].items()
     )
 
+    pillar_states = {
+        _parse_level_pos(position): value
+        for position, value in level_data.get("pillar_states", {}).items()
+    }
+
+    def initial_vector(pillar):
+        value = pillar_states.get(pillar)
+        if value is None:
+            return np.array([1.0, 0.0], dtype=np.complex128)
+        vector = np.array([
+            complex(value[key]["real"], value[key]["imag"])
+            if isinstance(value[key], dict) else complex(value[key])
+            for key in ("x", "y")
+        ], dtype=np.complex128)
+        return vector / np.linalg.norm(vector)
+
     blocks = tuple(
         Block(
             (pillar,),
-            np.array(
-                [1.0, 0.0],
-                dtype=np.complex128
-            ),
+            initial_vector(pillar),
         )
         for pillar in pillars
     )

@@ -4,6 +4,8 @@ import ast
 import hashlib
 import json
 from pathlib import Path
+import subprocess
+import sys
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -12,6 +14,51 @@ WEB = ROOT / "web"
 
 def digest(path):
     return hashlib.sha256(path.read_bytes()).digest()
+
+
+def test_menu_and_editor_start_without_the_quantum_stack():
+    """Reproduce browser boot before micropip has installed gameplay packages.
+
+    Use a fresh interpreter so another test cannot mask an eager import by
+    leaving the quantum modules cached in sys.modules.
+    """
+    result = subprocess.run(
+        [sys.executable, "-c", """
+import importlib.abc
+import os
+import sys
+from types import SimpleNamespace
+
+os.environ["SDL_VIDEODRIVER"] = "dummy"
+os.environ["SDL_AUDIODRIVER"] = "dummy"
+
+class BlockQuantumImports(importlib.abc.MetaPathFinder):
+    def find_spec(self, fullname, path=None, target=None):
+        if fullname.split(".")[0] in {"cirq", "unitary", "numpy", "scipy"}:
+            raise ModuleNotFoundError(f"Premature quantum import: {fullname}")
+
+sys.meta_path.insert(0, BlockQuantumImports())
+
+import pygame
+from Qungeon import Game
+
+game = Game(SimpleNamespace(level=1), settings={},
+            persist_settings=lambda _: True, gameplay_downloaded=lambda: False)
+assert game.menu.page == "main"
+game.run_frame()
+game.open_editor()
+assert game.menu.page == "editor"
+game.run_frame()
+assert game.quantum_grid is None
+assert game.hotbar is None
+pygame.quit()
+"""],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
 
 
 def test_every_configured_browser_file_exists():
