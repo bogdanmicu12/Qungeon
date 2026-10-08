@@ -416,6 +416,13 @@ class Hotbar:
                 ),
             )
 
+        mouse_pos = pygame.mouse.get_pos()
+        for key, rect in self.selection_rects.items():
+            slot = self.slots.get(key)
+            if slot and slot.count > 0 and rect.collidepoint(mouse_pos):
+                slot.hover(screen)
+                break
+
         instruction = font(15).render(
             "Select with keys and move over a pillar, "
             "or drag when next to a pillar",
