@@ -18,6 +18,7 @@ MUTED = (154, 158, 177)
 ACCENT = (182, 164, 242)
 MINT = (161, 220, 189)
 RED = (233, 149, 159)
+HEADER_LEFT, HEADER_RIGHT = 40, 760
 LEVEL_VIEWPORT = pygame.Rect(48, 190, 704, 284)
 LEVEL_SCROLL_TRACK = pygame.Rect(744, 190, 8, 284)
 DEFAULT_SETTINGS = {
@@ -111,6 +112,8 @@ class MenuUI:
         self.quantum.cancel_scroll_drag()
         if self.page == "playing":
             self.game.cancel_dragging()
+            if self.game.bloch is not None:
+                self.game.bloch.mouse_captured = False
         self.page = page
         self.focus = 0
         self.pressed = None
@@ -474,7 +477,7 @@ class MenuUI:
 
     def draw_header(self):
         screen = self.game.screen
-        pygame.draw.line(screen, EDGE, (40, 76), (760, 76))
+        pygame.draw.line(screen, EDGE, (HEADER_LEFT, 76), (HEADER_RIGHT, 76))
         pygame.draw.rect(screen, ACCENT, (40, 35, 24, 24), 2)
         self.text("Q", 46, 38, 23, ACCENT)
         self.text("QUNGEON", 77, 39, 22)
@@ -567,4 +570,6 @@ class MenuUI:
         pygame.draw.rect(self.game.screen, EDGE, (652, 29, 108, 35), 1)
         self.text("ESC  Pause", 665, 39, 20, MUTED)
         self.text("WASD  Move", 40, 579, 18, MUTED)
+        self.text("B  Bloch inspector", 323, 579, 18,
+                  ACCENT if self.game.bloch and self.game.bloch.enabled else MUTED)
         self.text("R  Restart", 692, 579, 18, MUTED)

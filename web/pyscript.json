@@ -26,6 +26,8 @@
     "../levels/7.json": "./levels/7.json",
     "../levels/8.json": "./levels/8.json",
     "../scripts/common_functions.py": "./scripts/common_functions.py",
+    "../scripts/bloch_state.py": "./scripts/bloch_state.py",
+    "../scripts/bloch_inspector.py": "./scripts/bloch_inspector.py",
     "../scripts/flip_phase.py": "./scripts/flip_phase.py",
     "../scripts/game_objects.py": "./scripts/game_objects.py",
     "../scripts/grouping_system.py": "./scripts/grouping_system.py",

@@ -23,6 +23,7 @@ from scripts.quantum_run import QuantumRun, capture_circuit
 alpha = None
 level_solver = None
 Hotbar = None
+BlochInspector = None
 BLOCK_SIZE = None
 LootableObject = Player = QuantumObject = Tile = TileType = None
 pillar_image = None
@@ -30,7 +31,7 @@ pillar_image = None
 
 def load_gameplay():
     """Import the quantum stack. Idempotent; the first call does the work."""
-    global alpha, level_solver, Hotbar, BLOCK_SIZE
+    global alpha, level_solver, Hotbar, BlochInspector, BLOCK_SIZE
     global LootableObject, Player, QuantumObject, Tile, TileType, pillar_image
     if Hotbar is not None:
         return
@@ -39,6 +40,7 @@ def load_gameplay():
     from scripts.game_objects import (
         BLOCK_SIZE, LootableObject, Player, QuantumObject, Tile, TileType, pillar_image,
     )
+    from scripts.bloch_inspector import BlochInspector
     # Bound last, so the guard above is only satisfied once every name is ready.
     from scripts.user_interface import Hotbar
 
@@ -100,6 +102,7 @@ class Game:
         self.gate_help_open = False
         self.player = None
         self.hotbar = None
+        self.bloch = None
         pygame.display.set_caption(GAME_TITLE)
         self.menu = MenuUI(self)
         if getattr(args, "start_direct", False):
@@ -127,6 +130,7 @@ class Game:
         if self.hotbar is None:
             self.hotbar = Hotbar()
             self.quantum_grid = alpha.QuantumWorld()
+            self.bloch = BlochInspector(self)
         self.clean_up()
 
         for pos_str, tile_type_str in level_data["tiles"].items():
@@ -166,6 +170,7 @@ class Game:
             self.objects[str(x) + "," + str(y)].apply_effect(self, effect)
 
         self.resources = self.resource_signature()
+        self.bloch.finish_level()
 
     def resource_signature(self):
         """Everything the player can still spend, as one comparable value.
@@ -184,6 +189,7 @@ class Game:
         """Resets and clears all game objects, tiles, and hotbar slots when loading a new level."""
         self.clear_quantum_notice()
         self.gate_help_open = False
+        self.bloch.reset()
         self.tiles.clear()
         self.tile_sprites.empty()
         self.objects.clear()
@@ -368,6 +374,8 @@ class Game:
 
     def cancel_dragging(self):
         """Put uncommitted drags back without spending a gate."""
+        if self.bloch is not None:
+            self.bloch.cancel_drag()
         for slot in self.hotbar.slots.values():
             slot.dragging = False
         self.hotbar.update_slots()
@@ -389,16 +397,20 @@ class Game:
         all_sprites.sort(key=lambda sprite: (sprite.rect.y, 0 if sprite == self.player else 1))
 
         for sprite in all_sprites:
-            self.screen.blit(sprite.image, sprite.rect)
+            if not getattr(sprite, "dragging", False):
+                self.screen.blit(sprite.image, sprite.rect)
 
         self.hotbar.draw_selection_panel(self.screen)
-        for slot in self.hotbar.slots.values():
-            if slot.dragging:
-                self.screen.blit(slot.image, slot.rect)
         if interactive:
             if self.settings["entanglement_guides"]:
                 self.entanglement_visuals()
         self.menu.draw_hud()
+        if interactive:
+            self.bloch.draw()
+        # Keep dragged gates and control pillars crisp above the faded inspector.
+        for sprite in (*self.objects.values(), *self.hotbar.slots.values()):
+            if sprite.dragging:
+                self.screen.blit(sprite.image, sprite.rect)
         if self.gate_help_open:
             self.hotbar.draw_help_window(self.screen)
 
@@ -519,6 +531,8 @@ class Game:
             previous_page = self.menu.page
             if self.menu.page != "playing":
                 self.menu.handle_event(event)
+            elif self.bloch.handle_event(event):
+                pass
             elif event.type == KEYDOWN:
                 self.handle_keydown(event)
             elif event.type == MOUSEBUTTONDOWN and event.button == 1:
@@ -543,6 +557,7 @@ class Game:
     def handle_keydown(self, event):
         """Handles keydown events for movement and other actions."""
         if event.key == K_h:
+            self.cancel_dragging()
             self.gate_help_open = not self.gate_help_open
             return
         if self.gate_help_open:

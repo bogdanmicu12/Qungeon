@@ -149,6 +149,8 @@ class QuantumObject(BaseObject, alpha.QuantumObject):
             self.phase_Z = False
 
         if effect:
+            inspector = getattr(game, "bloch", None)
+            previous = inspector.before_gate() if inspector else {}
             if isinstance(effect, list):
                 reference_obj = game.objects[str(effect[1][0]) + ',' + str(effect[1][1])]
                 alpha.quantum_if(self).apply(effect[0])(reference_obj)
@@ -156,6 +158,14 @@ class QuantumObject(BaseObject, alpha.QuantumObject):
                 reference_obj.apply_effect(game)
             else:
                 effect(self)
+
+            if inspector:
+                operation = effect[0] if isinstance(effect, list) else effect
+                label = next((name for name, candidate in gates.items()
+                              if candidate is not None and candidate == operation), "gate")
+                if isinstance(effect, list):
+                    label = {"X": "CNOT", "H": "CHAD"}.get(label, "controlled gate")
+                inspector.after_gate(previous, label)
 
             ordered_dict = OrderedDict(sorted(game.quantum_grid.get_correlated_histogram(self.group.objects, count=PEEK_COUNT).items()))
             self.group.states = ordered_dict
