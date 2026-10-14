@@ -4,15 +4,22 @@ Find a way out of a quantum dungeon, one understood rule at a time. Use gates
 to change the states of pillars and open a route to each level's END tile.
 Stand next to a pillar to use a gate on it.
 
-The nine rooms share a light escape story, **The Way Out**. Old wall markings
-lead toward daylight, and a short line above each room introduces its quantum
-idea. There are no story dialogs, extra clicks, or required reading. All puzzles
-can be played independently, and skipping intermediate completion screens keeps
-the run moving. Only finishing a full run shows the escape ending.
+The nine rooms share a light escape story, **The Way Out**. A full run opens with
+a short pixel animation: a ruined floor crumbles, the character falls into the
+dungeon, and lands in the first room. **Skip animation** (or Escape) goes straight
+to the opening thought; **Find a way out** (Enter, Space, or Escape) begins play.
+The thought stays on screen until you continue. Switching away pauses the opening.
+Level selection, direct links, and restarts go straight to the puzzle.
+
+Old wall markings lead toward daylight. Brief player thoughts above each room
+blend the escape story with clues, leaving gate combinations to discover.
+All puzzles can be played independently, and skipping intermediate completion
+screens keeps the run moving. Only finishing a full run shows the escape ending.
 
 For more explanation, press **H** for the gate guide or open **How to play**
 from Pause for the current room's concept. Story content and static decorations
-live in `scripts/story.py`; they do not change puzzle rules, gates, or circuits.
+live in `scripts/story.py`; the opening animation lives in `scripts/opening.py`.
+They do not change puzzle rules, gates, or circuits.
 
 ![The player next to a loot box and a pillar in state |1>](assets/screenshot.png)
 

@@ -33,6 +33,7 @@
     "../scripts/level_solver.py": "./scripts/level_solver.py",
     "../scripts/level_validation.py": "./scripts/level_validation.py",
     "../scripts/menus.py": "./scripts/menus.py",
+    "../scripts/opening.py": "./scripts/opening.py",
     "../scripts/story.py": "./scripts/story.py",
     "../scripts/quantum_run.py": "./scripts/quantum_run.py",
     "../scripts/quantum_menu.py": "./scripts/quantum_menu.py",

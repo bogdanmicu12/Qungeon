@@ -1,8 +1,48 @@
-# Qungeon story proposal: The Way Out
+# Qungeon story: The Way Out
 
-Status: implemented on 2026-10-13. The following records the agreed design;
-story content lives in `scripts/story.py`. Puzzle layouts and quantum rules are
-unchanged.
+## Revised direction, 2026-10-14
+
+The story follows the anonymous player's thoughts. It establishes that they are
+trapped in a dungeon and need another way out. Keep the voice brief and practical;
+there is no extra backstory or speaking companion. Blend observations about the
+locks with the escape story, but leave players to discover gate combinations.
+Only a definite pure 0 lets the player pass a pillar; 1 and superpositions block it.
+
+A new full run opens with a 7.5-second animation in the existing pixel art style:
+
+1. Walk through an old ruin using the existing character, floor, and wall sprites.
+2. Cracks spread beneath the character; the floor breaks into falling fragments.
+3. The character visibly tumbles into a dark shaft as the scene fades out.
+4. Reveal the actual first level and drop the character into its starting position
+   from above, with a small landing bounce and dust.
+5. Show the thought: **"I fell... I can't climb back up. There must be another way out."**
+
+The thought stays visible until the player chooses **Find a way out**. **Skip
+animation** or Escape skips the movement and shows that thought immediately.
+Enter, Space, the button, or Escape then begins play. The opening pauses on focus
+loss and offers Resume. Individual levels, direct links, and restarts bypass it;
+starting another full run plays it again. Completion-screen preferences do not
+control the opening.
+
+The room titles and quiet wall markings remain. The upper HUD now carries one
+or two short player thoughts about the escape or a puzzling lock. These replace
+the explicit gate recipes in the original proposal. Completion text supplies
+occasional extra context, and the full-run ending reads:
+**"Daylight. Fresh air. I found another way out."**
+
+Detailed gate explanations remain available through the optional gate guide and
+contextual How to play page. The animation uses only the existing assets and
+Pygame drawing; no new sprites, video files, or dependencies are required.
+Content lives in `scripts/story.py`, animation in `scripts/opening.py`. The
+landing offsets the drawn sprite only; puzzle positions, gates, inventories,
+quantum state, circuit recording, and level files are unchanged. Desktop and
+browser share the implementation.
+
+## Original proposal (superseded)
+
+The following preserves the original implementation plan and its verification
+record. Its prohibition on an opening/dialogue and its example room text are
+superseded by the direction above.
 
 ## Agreed direction
 

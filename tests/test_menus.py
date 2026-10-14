@@ -46,6 +46,9 @@ def test_start_requires_setup_and_full_run_advances(game):
     click(game, "setup")
     assert game.menu.page == "setup"
     click(game, "start")
+    assert game.menu.page == "intro"
+    click(game, "intro_skip")
+    click(game, "intro_continue")
     assert (game.menu.page, game.current_level, game.run_mode) == ("playing", 1, "full")
     game.advance_level()
     assert (game.current_level, game.menu.page) == (1, "complete")
@@ -396,7 +399,9 @@ def test_the_menu_runs_before_the_quantum_stack_is_ready():
 
     downloaded = True
     game.run_frame()
-    assert (game.menu.page, game.menu.pending) == ("playing", None)
+    assert (game.menu.page, game.menu.pending) == ("intro", None)
+    click(game, "intro_skip")
+    click(game, "intro_continue")
     assert (game.current_level, game.run_mode) == (1, "full")
     pygame.event.clear()
 

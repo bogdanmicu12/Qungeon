@@ -379,7 +379,7 @@ class Game:
                 if isinstance(obj, QuantumObject):
                     obj.control = None
     
-    def display_game(self, update=True, interactive=True):
+    def display_game(self, update=True, interactive=True, player_offset=0, show_ui=True):
         """Renders the current game state, including the player, tiles, and hotbar, to the screen."""
         self.screen.fill(SCREEN_BG_COLOR)
         
@@ -391,17 +391,20 @@ class Game:
         all_sprites.sort(key=lambda sprite: (sprite.rect.y, 0 if sprite == self.player else 1))
 
         for sprite in all_sprites:
-            self.screen.blit(sprite.image, sprite.rect)
+            rect = sprite.rect.move(0, player_offset) if sprite == self.player else sprite.rect
+            self.screen.blit(sprite.image, rect)
 
-        self.hotbar.draw_selection_panel(self.screen)
-        for slot in self.hotbar.slots.values():
-            if slot.dragging:
-                self.screen.blit(slot.image, slot.rect)
+        if show_ui:
+            self.hotbar.draw_selection_panel(self.screen)
+            for slot in self.hotbar.slots.values():
+                if slot.dragging:
+                    self.screen.blit(slot.image, slot.rect)
         if interactive:
             if self.settings["entanglement_guides"]:
                 self.entanglement_visuals()
-        self.menu.draw_hud()
-        if self.gate_help_open:
+        if show_ui:
+            self.menu.draw_hud()
+        if show_ui and self.gate_help_open:
             self.hotbar.draw_help_window(self.screen)
 
         if update:
@@ -465,7 +468,7 @@ class Game:
         was_playing = self.menu.page == "playing"
         # Before input, so a level choice held over from an earlier frame is
         # released while its loading screen is the thing on the display.
-        self.menu.update()
+        self.menu.update(elapsed)
         self.handle_events()
         if not self.running:
             return
@@ -501,6 +504,8 @@ class Game:
             if should_pause is not None and should_pause():
                 if self.menu.page == "playing":
                     self.menu.open("paused")
+                elif self.menu.page == "intro":
+                    self.menu.opening.suspended = True
             self.run_frame()
             if self.menu.page != previous_page:
                 previous_page = self.menu.page
@@ -517,6 +522,8 @@ class Game:
             if event.type == getattr(pygame, "WINDOWFOCUSLOST", -1):
                 if self.menu.page == "playing":
                     self.menu.open("paused")
+                elif self.menu.page == "intro":
+                    self.menu.opening.suspended = True
                 return
             previous_page = self.menu.page
             if self.menu.page != "playing":

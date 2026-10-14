@@ -9,6 +9,7 @@ from scripts.common_functions import font
 from scripts.level_validation import LevelError, parse_pos, read_level
 from scripts.quantum_menu import QuantumMenu
 from scripts import story
+from scripts.opening import Opening
 
 
 BG = (17, 19, 30)
@@ -76,6 +77,7 @@ class MenuUI:
         self.level_scroll_drag_offset = 0
         self.pressed = None
         self.pending = None      # level choice waiting on the quantum stack
+        self.opening = None
         self.loading_from = "main"   # where to go back to if it will not load
         self.loading_drawn = False   # the screen the import is allowed to block behind
         self.previews = {}
@@ -134,8 +136,8 @@ class MenuUI:
         self.text(room.title if room else "The way out", 62, 399, 24, ACCENT)
         self.paragraph(
             room.help_note if room else
-            "You wake beneath a sealed hatch. An open arch is carved into the stone: "
-            "a sign of a way out. Follow the old markings toward daylight, learning the "
+            "A ruined floor gives way, dropping you into the dungeon. An arch carved "
+            "into the stone suggests another way out. Follow the markings toward daylight, learning the "
             "rules of the quantum locks as you go. These locks are fictional; the gates follow quantum rules.",
             62, 427, 676, size=20)
 
@@ -153,6 +155,8 @@ class MenuUI:
         if self.page == "playing":
             self.game.cancel_dragging()
         self.page = page
+        if page != "intro":
+            self.opening = None
         self.focus = 0
         self.pressed = None
         if page == "levels":
@@ -162,6 +166,12 @@ class MenuUI:
 
     def buttons(self):
         """Return (action, rectangle, label, supporting text) for this page."""
+        if self.page == "intro":
+            if self.opening.suspended:
+                return [("intro_resume", pygame.Rect(280, 365, 240, 42), "Resume", "")]
+            action, label = (("intro_continue", "Find a way out") if self.opening.landed
+                             else ("intro_skip", "Skip animation"))
+            return [(action, pygame.Rect(280, 504, 240, 42), label, "")]
         if self.page in ("quantum", "quantum_history", "quantum_map", "quantum_circuit"):
             return self.quantum.buttons()
         if self.page == "complete":
@@ -218,7 +228,7 @@ class MenuUI:
         return [(action, pygame.Rect(244, top + index * 53, 312, 42), label, "")
                 for index, (action, label) in enumerate(actions)]
 
-    def update(self):
+    def update(self, elapsed=0):
         """Start the level the player already chose, once the code is here.
 
         The import blocks for seconds, so it may only start once the loading
@@ -227,6 +237,9 @@ class MenuUI:
         also means clicks that piled up during the freeze are discarded rather
         than landing in the level.
         """
+        if self.page == "intro":
+            self.opening.update(elapsed)
+            return
         if self.pending is None or not self.loading_drawn:
             return
         if not self.game.gameplay_downloaded():
@@ -242,7 +255,14 @@ class MenuUI:
                             pygame.MOUSEMOTION, pygame.KEYDOWN, pygame.KEYUP))
 
     def back(self):
-        if self.page in ("quantum", "quantum_history", "quantum_map", "quantum_circuit"):
+        if self.page == "intro":
+            if self.opening.suspended:
+                self.opening.suspended = False
+            elif self.opening.landed:
+                self.open("playing")
+            else:
+                self.opening.skip()
+        elif self.page in ("quantum", "quantum_history", "quantum_map", "quantum_circuit"):
             self.quantum.back()
         elif self.page == "paused":
             self.open("playing")
@@ -281,6 +301,15 @@ class MenuUI:
             self.game.start_level(int(action.split(":", 1)[1]), "single")
         elif action == "start":
             self.game.start_level(self.game.available_levels[0], "full")
+            if self.page == "playing" and self.game.current_level == 1:
+                self.opening = Opening(self)
+                self.open("intro")
+        elif action == "intro_skip":
+            self.opening.skip()
+        elif action == "intro_continue":
+            self.open("playing")
+        elif action == "intro_resume":
+            self.opening.suspended = False
         elif action == "retry":
             self.game.restart_level()
         elif action == "retry_run":
@@ -522,6 +551,12 @@ class MenuUI:
 
     def draw(self):
         screen = self.game.screen
+        if self.page == "intro":
+            self.opening.draw()
+            for index, button in enumerate(self.buttons()):
+                self.draw_button(button, index)
+            pygame.display.update()
+            return
         if self.page in ("quantum", "quantum_history", "quantum_map", "quantum_circuit"):
             self.quantum.draw()
             buttons = self.buttons()
