@@ -25,6 +25,27 @@ canvas.addEventListener("keydown", (event) => {
   }
 });
 
+// Native paste supplies text without requesting clipboard-read permission.
+// Python consumes it once per frame and accepts it only in the seed field.
+let pastedText = "";
+window.addEventListener("keydown", (event) => {
+  if (document.activeElement !== canvas) return;
+  const pasteShortcut = ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "v")
+    || (event.shiftKey && event.key === "Insert");
+  // SDL prevents the browser's default key actions, including paste.
+  if (pasteShortcut) event.stopImmediatePropagation();
+}, true);
+document.addEventListener("paste", (event) => {
+  if (document.activeElement !== canvas) return;
+  pastedText = event.clipboardData?.getData("text/plain") ?? "";
+  event.preventDefault();
+});
+window.qungeonTakePastedText = () => {
+  const text = pastedText;
+  pastedText = "";
+  return text;
+};
+
 // Python polls completed requests once per frame; no Python callbacks run here.
 let levelWorker;
 let levelPhase = "idle";

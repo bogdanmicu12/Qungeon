@@ -2,6 +2,7 @@
 
 import json
 import math
+import sys
 from pathlib import Path
 
 import pygame
@@ -463,11 +464,18 @@ class MenuUI:
         ]
 
     def update(self):
-        """Start a pending gameplay action after the loading screen is drawn.
+        """Consume browser paste and start actions after the loading screen is drawn.
 
         Importing/loading the quantum stack may block for several seconds, so
         the selection is held until a loading frame has actually been shown.
         """
+
+        if sys.platform == "emscripten":
+            from js import window
+
+            pasted = window.qungeonTakePastedText()
+            if pasted and self.page == "custom_seed" and self.seed_active:
+                self.set_pasted_seed(str(pasted))
 
         if self.pending is None or not self.loading_drawn:
             return
@@ -640,6 +648,13 @@ class MenuUI:
         else:
             self.open(action)
 
+    def set_pasted_seed(self, text):
+        """Replace the input with clipboard text, stripping SDL's trailing NULs."""
+        text = text.replace("\x00", "").strip()
+        if text:
+            self.seed_text = text[:4096]
+            self.seed_error = ""
+
     def handle_event(self, event):
         # ------------------------------------------------------------
         # Custom seed text input
@@ -654,31 +669,26 @@ class MenuUI:
                     self.activate("load_seed")
                     return
 
-                # Ctrl+V = paste seed from clipboard.
+                # The browser delivers Ctrl/Cmd+V through its native paste event.
                 if (
                     event.key == pygame.K_v
-                    and pygame.key.get_mods() & pygame.KMOD_CTRL
+                    and getattr(event, "mod", 0) & (pygame.KMOD_CTRL | pygame.KMOD_GUI)
                 ):
+                    if sys.platform == "emscripten":
+                        return
+
                     try:
                         pygame.scrap.init()
                         pasted = pygame.scrap.get(
                             pygame.SCRAP_TEXT
                         )
 
-                        if pasted:
-                            if isinstance(pasted, bytes):
-                                pasted = pasted.decode(
-                                    "utf-8",
-                                    errors="ignore",
-                                )
-
-                            pasted = pasted.replace(
-                                "\x00",
-                                "",
-                            ).strip()
-
-                            self.seed_text = pasted[:4096]
-                            self.seed_error = ""
+                        # SDL can return no text without raising an error.
+                        if not pasted:
+                            raise ValueError("No clipboard text available through SDL")
+                        if isinstance(pasted, bytes):
+                            pasted = pasted.decode("utf-8", errors="ignore")
+                        self.set_pasted_seed(pasted)
 
                     except Exception:
                         try:
@@ -687,13 +697,12 @@ class MenuUI:
                             root = tk.Tk()
                             root.withdraw()
 
-                            pasted = root.clipboard_get()
+                            try:
+                                pasted = root.clipboard_get()
+                            finally:
+                                root.destroy()
 
-                            root.destroy()
-
-                            if pasted:
-                                self.seed_text = pasted.strip()[:4096]
-                                self.seed_error = ""
+                            self.set_pasted_seed(pasted)
 
                         except Exception:
                             self.seed_error = (
