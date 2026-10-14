@@ -48,6 +48,8 @@ FPS = 60
 HOP_FRAMES = 10
 HOP_DELAY_MS = 10
 SCREEN_BG_COLOR = BG
+# Leave room for the story above the board and the gate selector below it.
+PLAY_AREA = pygame.Rect(40, 112, 720, 308)
 GAME_TITLE = 'Qungeon'
 DEFAULT_START_LEVEL = 1
 
@@ -73,6 +75,7 @@ class Game:
         self.screen = pygame.display.set_mode((800, 600))
         self.tiles = {}
         self.objects = {}
+        self.board_offset = (0, 0)
 
         self.grouping_system = GroupingSystem()
         self.quantum_grid = None
@@ -166,7 +169,24 @@ class Game:
 
             self.objects[str(x) + "," + str(y)].apply_effect(self, effect)
 
+        self.center_level()
         self.resources = self.resource_signature()
+
+    def center_level(self):
+        """Center the board's sprites while keeping logical tile coordinates unchanged."""
+        rects = [tile.rect for tile in self.tile_sprites]
+        bounds = rects[0].unionall(rects[1:])
+        offset = (PLAY_AREA.centerx - bounds.centerx, PLAY_AREA.centery - bounds.centery)
+        for sprite in list(self.tile_sprites) + list(self.object_sprites):
+            sprite.rect.move_ip(offset)
+        self.board_offset = (self.board_offset[0] + offset[0], self.board_offset[1] + offset[1])
+        self.update_player_position(*self.player.position)
+
+    def update_player_position(self, x, y):
+        """Use the board's screen offset for movement and every rendered player pose."""
+        self.player.update_position(x, y)
+        self.player.rect.topleft = (x * BLOCK_SIZE + self.board_offset[0],
+                                    y * BLOCK_SIZE + self.board_offset[1])
 
     def resource_signature(self):
         """Everything the player can still spend, as one comparable value.
@@ -186,6 +206,7 @@ class Game:
         self.clear_quantum_notice()
         self.gate_help_open = False
         self.tiles.clear()
+        self.board_offset = (0, 0)
         self.tile_sprites.empty()
         self.objects.clear()
         self.object_sprites.empty()
@@ -209,12 +230,12 @@ class Game:
         self.hop["elapsed"] += elapsed
         progress = min(1, self.hop["elapsed"] / (HOP_FRAMES * HOP_DELAY_MS))
         start, end = self.hop["start"], self.hop["end"]
-        self.player.update_position(
+        self.update_player_position(
             start[0] + (end[0] - start[0]) * progress,
             start[1] + (end[1] - start[1]) * progress - progress * (1 - progress),
         )
         if progress == 1:
-            self.player.update_position(*end)
+            self.update_player_position(*end)
             self.hop = None
             if self.tiles[end].type == TileType.END:
                 self.advance_level()
@@ -382,9 +403,10 @@ class Game:
     def display_game(self, update=True, interactive=True, player_offset=0, show_ui=True):
         """Renders the current game state, including the player, tiles, and hotbar, to the screen."""
         self.screen.fill(SCREEN_BG_COLOR)
+        self.update_player_position(*self.player.position)
         
         self.tile_sprites.draw(self.screen)
-        story.draw_marks(self, BLOCK_SIZE)
+        story.draw_marks(self)
 
         all_sprites = list(self.object_sprites)
         all_sprites.append(self.player)
@@ -452,8 +474,8 @@ class Game:
                 if object.rect.collidepoint(mouse_pos):
                     for entangled_object in object.group.objects:
                         if object != entangled_object:
-                            start_pos = ((object.position[0] + 0.5) * BLOCK_SIZE, (object.position[1] + 0.5) * BLOCK_SIZE)
-                            end_pos = ((entangled_object.position[0] + 0.5) * BLOCK_SIZE, (entangled_object.position[1] + 0.5) * BLOCK_SIZE)
+                            start_pos = self.tiles[object.position].rect.center
+                            end_pos = self.tiles[entangled_object.position].rect.center
                             pygame.draw.line(self.screen, (60, 60, 200), start_pos, end_pos, width=2)
 
     def run_frame(self):

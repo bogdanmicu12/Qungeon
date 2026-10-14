@@ -107,7 +107,7 @@ def draw_arch(surface, rect, color, width=2):
                        (x + w - 6, y), (x + w, y + 6), (x + w, y + h)], width)
 
 
-def draw_marks(game, block_size):
+def draw_marks(game):
     """Paint only scenery, behind sprites. Unknown or edited maps fail quietly."""
     room = ROOMS.get(game.current_level)
     if room is None:
@@ -117,7 +117,7 @@ def draw_marks(game, block_size):
         if tile is None or tile.type.name != "WALL":
             continue
         # Stay inside the stone and below the HUD, even on edited maps.
-        left, top = x * block_size + 12, y * block_size + 12
+        left, top = tile.rect.x + 12, tile.rect.y + 12
         rect = pygame.Rect(left, top, 24, 24)
         if not pygame.Rect(0, 96, 800, 348).contains(rect):
             continue
@@ -155,7 +155,7 @@ def draw_marks(game, block_size):
             if tile.type.name != "END" or (x + 1, y) in game.tiles:
                 continue
             # Light is outside the floor: it never resembles another walkable tile.
-            left, top = (x + 1) * block_size + 6, y * block_size + 8
+            left, top = tile.rect.right + 6, tile.rect.y + 8
             if not pygame.Rect(0, 96, 800, 348).contains(pygame.Rect(left, top, 32, 32)):
                 continue
             color = (86, 82, 72) if game.current_level < 9 else (159, 149, 119)

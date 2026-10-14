@@ -111,12 +111,12 @@ class Opening:
             veil.fill((8, 10, 18, round(255 * (1 - progress / 0.3))))
             game.screen.blit(veil, (0, 0))
         if self.landed:
-            panel = pygame.Rect(104, 303, 592, 104)
+            panel = pygame.Rect(104, 330, 592, 96)
             pygame.draw.rect(game.screen, (8, 10, 17), panel.move(0, 5))
             pygame.draw.rect(game.screen, (26, 29, 43), panel)
             pygame.draw.rect(game.screen, (58, 63, 83), panel, 2)
-            self.menu.text("...", 124, 315, 23, (182, 164, 242))
-            self.menu.paragraph(OPENING_THOUGHT, 124, 344, 552, size=25,
+            self.menu.text("...", 124, 342, 23, (182, 164, 242))
+            self.menu.paragraph(OPENING_THOUGHT, 124, 371, 552, size=25,
                                 color=(238, 235, 225))
 
     def draw(self):
