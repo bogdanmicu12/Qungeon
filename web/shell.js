@@ -24,3 +24,79 @@ canvas.addEventListener("keydown", (event) => {
     event.preventDefault();
   }
 });
+
+// Native paste supplies text without requesting clipboard-read permission.
+// Python consumes it once per frame and accepts it only in the seed field.
+let pastedText = "";
+window.addEventListener("keydown", (event) => {
+  if (document.activeElement !== canvas) return;
+  const pasteShortcut = ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "v")
+    || (event.shiftKey && event.key === "Insert");
+  // SDL prevents the browser's default key actions, including paste.
+  if (pasteShortcut) event.stopImmediatePropagation();
+}, true);
+document.addEventListener("paste", (event) => {
+  if (document.activeElement !== canvas) return;
+  pastedText = event.clipboardData?.getData("text/plain") ?? "";
+  event.preventDefault();
+});
+window.qungeonTakePastedText = () => {
+  const text = pastedText;
+  pastedText = "";
+  return text;
+};
+
+// Python polls completed requests once per frame; no Python callbacks run here.
+let levelWorker;
+let levelPhase = "idle";
+let levelRequest = 0;
+const levelResults = new Map();
+const levelPending = new Set();
+function ensureLevelWorker() {
+  if (!levelWorker) {
+    levelPhase = "preparing";
+    levelWorker = new Worker(new URL("./web/level-check-worker.js?v=16", document.baseURI), { type: "module" });
+    levelWorker.onmessage = ({ data: { id, result, phase } }) => {
+      if (phase) levelPhase = phase;
+      if (levelPending.delete(id)) levelResults.set(id, result);
+    };
+    levelWorker.onerror = (event) => {
+      event.preventDefault();
+      for (const id of levelPending) levelResults.set(id, JSON.stringify({
+        solvable: null, message: "Could not start the level checker. Please try again.",
+      }));
+      levelPending.clear();
+      levelWorker.terminate();
+      levelWorker = undefined;
+      levelPhase = "error";
+    };
+  }
+}
+window.qungeonPrepareLevelChecker = () => {
+  ensureLevelWorker();
+  if (levelPhase === "preparing" || levelPhase === "error") {
+    levelWorker.postMessage({ prepare: true });
+  }
+};
+window.qungeonLevelCheckerPhase = () => levelPhase;
+window.qungeonCheckLevel = (payload) => {
+  ensureLevelWorker();
+  const id = ++levelRequest;
+  levelPending.add(id);
+  levelWorker.postMessage({ id, payload });
+  return id;
+};
+window.qungeonPollLevel = (id) => {
+  const result = levelResults.get(id) || "";
+  levelResults.delete(id);
+  return result;
+};
+window.qungeonCancelLevel = (id) => {
+  levelResults.delete(id);
+  if (levelPending.delete(id)) {
+    levelWorker?.terminate();
+    levelWorker = undefined;
+    levelPhase = "idle";
+    levelPending.clear();
+  }
+};

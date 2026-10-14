@@ -1,7 +1,7 @@
 requirements.in
 QungeonEnv/
 level_editor.py
-__pycache__
+**pycache**
 tests.py
 AUDIT.md
 CLAUDE.md

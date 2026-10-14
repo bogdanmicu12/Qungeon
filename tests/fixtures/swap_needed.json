@@ -1,0 +1,16 @@
+{
+  "_comment": "The corridor pillar (4,4) is |1> and the only gate is SWAP. Swapping it with the unreachable |0> pillar (4,6) is the only way through.",
+  "tiles": {
+    "(3,4)": "START",
+    "(4,4)": "EMPTY",
+    "(5,4)": "EMPTY",
+    "(6,4)": "END",
+    "(4,6)": "EMPTY"
+  },
+  "objects": {},
+  "quantum_objects": ["(4,4)", "(4,6)"],
+  "gates": { "SWAP": 1 },
+  "effects": [
+    { "position": "(4,4)", "effect": "Flip" }
+  ]
+}
