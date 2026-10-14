@@ -20,6 +20,13 @@ def test_every_configured_browser_file_exists():
     assert missing == []
 
 
+def test_browser_includes_every_shipped_level_and_story():
+    files = json.loads((WEB / "pyscript.json").read_text(encoding="utf-8"))["files"]
+    for path in (ROOT / "levels").glob("*.json"):
+        assert files[f"../levels/{path.name}"] == f"./levels/{path.name}"
+    assert files["../scripts/story.py"] == "./scripts/story.py"
+
+
 def test_the_quantum_stack_is_not_installed_during_boot():
     """cirq and its dependencies are ~37 MB and nothing on the menu needs them.
 

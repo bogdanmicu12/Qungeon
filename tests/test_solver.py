@@ -17,6 +17,7 @@ Run with the project environment:
 """
 
 import os
+from pathlib import Path
 from types import SimpleNamespace
 
 os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
@@ -31,7 +32,9 @@ from scripts.game_objects import QuantumObject, control_gates, gates
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 FIXTURES = os.path.join(HERE, "fixtures")
-SHIPPED_LEVELS = range(1, 9)
+SHIPPED_LEVELS = sorted(int(path.stem) for path in
+                       Path(HERE, "..", "levels").glob("*.json")
+                       if path.stem.isdigit())
 
 DIRECTIONS = {
     (1, 0): pygame.K_d,

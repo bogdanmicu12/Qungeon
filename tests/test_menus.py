@@ -142,9 +142,12 @@ def test_skip_screen_survives_a_broken_next_level(game, monkeypatch):
     assert game.quantum_run.circuit["level"] == 1
 
 
-@pytest.mark.parametrize("level", range(1, 9))
+@pytest.mark.parametrize("level", range(1, 10))
 def test_level_selection_loads_and_finishes_only_that_level(game, level):
     click(game, "levels")
+    # Focus navigation scrolls the third row into view before a mouse click.
+    for _ in range(game.available_levels.index(level)):
+        key(game, pygame.K_DOWN)
     click(game, f"level:{level}")
     assert (game.current_level, game.run_mode) == (level, "single")
     rects = [slot.rect for slot in game.hotbar.slots.values()]

@@ -13,6 +13,7 @@ from scripts.level_validation import read_level, parse_pos, LevelError
 from scripts.menus import ACCENT, MenuUI, BG, load_settings, normalize_settings, save_settings
 # quantum_run keeps cirq behind function-level imports, so it is safe up here.
 from scripts.quantum_run import QuantumRun, capture_circuit
+from scripts import story
 
 
 # Bound by load_gameplay(). Everything that reaches cirq - the quantum stack
@@ -383,6 +384,7 @@ class Game:
         self.screen.fill(SCREEN_BG_COLOR)
         
         self.tile_sprites.draw(self.screen)
+        story.draw_marks(self, BLOCK_SIZE)
 
         all_sprites = list(self.object_sprites)
         all_sprites.append(self.player)
