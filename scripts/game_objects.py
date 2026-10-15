@@ -238,6 +238,8 @@ class QuantumObject(BaseObject, alpha.QuantumObject):
             self.phase_Z = False
 
         if effect:
+            inspector = getattr(game, "bloch", None)
+            previous = inspector.before_gate() if inspector is not None else {}
             if isinstance(effect, list):
                 reference_obj = game.objects[
                     str(effect[1][0]) + ',' + str(effect[1][1])
@@ -252,6 +254,17 @@ class QuantumObject(BaseObject, alpha.QuantumObject):
                 reference_obj.apply_effect(game)
             else:
                 effect(self)
+
+            if inspector is not None:
+                operation = effect[0] if isinstance(effect, list) else effect
+                label = next(
+                    (name for name, candidate in gates.items()
+                     if candidate is not None and candidate == operation),
+                    "gate",
+                )
+                if isinstance(effect, list):
+                    label = {"X": "CNOT", "H": "CHAD"}.get(label, "controlled gate")
+                inspector.after_gate(previous, label)
 
             ordered_dict = OrderedDict(
                 sorted(

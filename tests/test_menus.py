@@ -86,14 +86,14 @@ def click(game, action):
     game.run_frame()
 
 
-def test_start_requires_setup_and_full_run_advances(game):
+def test_play_menu_starts_normal_levels_and_full_run_advances(game):
     assert game.menu.page == "main"
 
-    click(game, "setup")
+    click(game, "play")
 
-    assert game.menu.page == "setup"
+    assert game.menu.page == "play"
 
-    click(game, "start")
+    click(game, "normal_levels")
 
     assert (
         game.menu.page,
@@ -135,7 +135,7 @@ def test_full_run_settings_reveal_auto_queue_and_save_both_preferences(game):
         dict(settings)
     )
 
-    click(game, "setup")
+    click(game, "settings")
 
     assert "toggle:auto_quantum_runs" not in [
         b[0] for b in game.menu.buttons()
@@ -279,7 +279,7 @@ def test_auto_queue_captures_each_level_before_advancing_and_processes_in_backgr
 
     assert requests[0][1] == "enqueue"
     assert first.circuit["level"] == 1
-    assert first.circuit["labels"] == ["5,4"]
+    assert first.circuit["labels"] == ["5,4", "4,5"]
 
     assert game.current_level == 2
     assert game.quantum_run is None
@@ -580,7 +580,8 @@ def test_decoherence_is_saved_without_changing_quantum_state(game):
     assert game.quantum_grid.circuit == before
 
     key(game, pygame.K_ESCAPE)
-    click(game, "setup")
+    click(game, "play")
+    click(game, "normal_levels")
 
     assert game.settings["decoherence"] is True
 
@@ -838,11 +839,11 @@ def test_the_menu_runs_before_the_quantum_stack_is_ready():
                 persist_settings=lambda _: True, gameplay_downloaded=lambda: downloaded)
 
     assert (game.menu.page, game.hotbar, game.quantum_grid) == ("main", None, None)
-    click(game, "setup")
-    assert game.menu.page == "setup"
+    click(game, "play")
+    assert game.menu.page == "play"
 
-    click(game, "start")                   # held, not dropped, not crashed
-    assert (game.menu.page, game.menu.pending) == ("loading", "start")
+    click(game, "normal_levels")           # held, not dropped, not crashed
+    assert (game.menu.page, game.menu.pending) == ("loading", "normal_levels")
     game.run_frame()                       # loading screen stays up meanwhile
     assert game.menu.page == "loading"
 

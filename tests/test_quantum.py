@@ -184,7 +184,7 @@ def test_submit_is_idempotent_and_results_recover_from_disk(game, sdk, tmp_path,
     result = recovered.command({"request_id": key, "action": "status"})
     assert result["state"] == "done"
     assert result["actual_shots"] == 512
-    assert result["counts"] == {"0": 500, "1": 12}
+    assert result["counts"] == {"00": 500, "10": 12}
     assert result["scene"] == command["circuit"]["scene"]
     from scripts.quantum_run import circuit_diagram
     assert result["diagram"] == circuit_diagram(command["circuit"])

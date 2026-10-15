@@ -70,6 +70,7 @@ from scripts.level_share import decode_level
 alpha = None
 level_solver = None
 Hotbar = None
+BlochInspector = None
 BLOCK_SIZE = None
 LootableObject = Player = QuantumObject = Tile = TileType = None
 pillar_image = None
@@ -78,7 +79,7 @@ gates = None
 
 def load_gameplay():
     """Import the quantum/gameplay stack. Idempotent; the first call does work."""
-    global alpha, level_solver, Hotbar, BLOCK_SIZE
+    global alpha, level_solver, Hotbar, BlochInspector, BLOCK_SIZE
     global LootableObject, Player, QuantumObject
     global Tile, TileType, pillar_image, gates
 
@@ -98,6 +99,8 @@ def load_gameplay():
         pillar_image,
         gates,
     )
+
+    from scripts.bloch_inspector import BlochInspector
 
     # Bound last so the guard above is only satisfied when every dependency
     # needed by gameplay has been loaded.
@@ -176,6 +179,7 @@ class Game:
 
         self.player = None
         self.hotbar = None
+        self.bloch = None
 
         self.quantum_run = None
         self.background_quantum_runs = []
@@ -259,6 +263,9 @@ class Game:
 
         if self.quantum_grid is None:
             self.quantum_grid = alpha.QuantumWorld()
+
+        if self.bloch is None:
+            self.bloch = BlochInspector(self)
 
         self.clean_up()
 
@@ -352,6 +359,7 @@ class Game:
             )
 
         self.resources = self.resource_signature()
+        self.bloch.finish_level()
 
     def resource_signature(self):
         """Return everything the player can still spend."""
@@ -367,6 +375,9 @@ class Game:
         """Reset all game objects, tiles, quantum state, and hotbar slots."""
         self.clear_quantum_notice()
         self.gate_help_open = False
+
+        if self.bloch is not None:
+            self.bloch.reset()
 
         self.tiles.clear()
         self.tile_sprites.empty()
@@ -771,6 +782,9 @@ class Game:
 
     def cancel_dragging(self):
         """Put uncommitted drags back without spending a gate."""
+        if self.bloch is not None:
+            self.bloch.cancel_drag()
+
         if self.hotbar is not None:
             for slot in self.hotbar.slots.values():
                 slot.dragging = False
@@ -825,16 +839,17 @@ class Game:
         )
 
         for sprite in all_sprites:
-            self.screen.blit(
-                sprite.image,
-                sprite.rect,
-            )
+            if not getattr(sprite, "dragging", False):
+                self.screen.blit(
+                    sprite.image,
+                    sprite.rect,
+                )
 
         # Preserve combined-branch hotbar rendering.
         if self.hotbar is not None:
-            self.hotbar.sprites.draw(
-                self.screen
-            )
+            for slot in self.hotbar.slots.values():
+                if not slot.dragging:
+                    self.screen.blit(slot.image, slot.rect)
 
         # Main branch help/selection UI where supported.
         if interactive and self.hotbar is not None:
@@ -847,6 +862,15 @@ class Game:
             )
 
         self.menu.draw_hud()
+
+        if interactive and self.bloch is not None:
+            self.bloch.draw()
+
+        # Draw each dragged object once, above the translucent inspector.
+        if self.hotbar is not None:
+            for sprite in (*self.objects.values(), *self.hotbar.slots.values()):
+                if sprite.dragging:
+                    self.screen.blit(sprite.image, sprite.rect)
 
         # Main branch functionality.
         if self.gate_help_open and self.hotbar is not None:
@@ -929,10 +953,13 @@ class Game:
         preserved accurately. Cached state and phase information move with
         the swapped state as well.
         """
+        previous = self.bloch.before_gate() if self.bloch is not None else {}
         gates["SWAP"](
             obj,
             other_obj,
         )
+        if self.bloch is not None:
+            self.bloch.after_gate(previous, "SWAP")
 
         self.grouping_system.swap(
             obj,
@@ -1157,6 +1184,9 @@ class Game:
             elif self.menu.page != "playing":
                 self.menu.handle_event(event)
 
+            elif self.bloch is not None and self.bloch.handle_event(event):
+                pass
+
             elif event.type == KEYDOWN:
                 self.handle_keydown(event)
 
@@ -1223,6 +1253,7 @@ class Game:
 
         # Main branch: gate help.
         if event.key == K_h:
+            self.cancel_dragging()
             self.gate_help_open = not self.gate_help_open
             return
 
@@ -1310,4 +1341,3 @@ if __name__ == "__main__":
 
     game_instance = Game(args)
     game_instance.run()
-

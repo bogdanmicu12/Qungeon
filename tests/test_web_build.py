@@ -91,6 +91,12 @@ def test_browser_uses_original_game_files_without_copies():
     assert not (WEB / "scripts").exists()
 
 
+def test_browser_includes_the_shared_bloch_inspector():
+    config = json.loads((WEB / "pyscript.json").read_text(encoding="utf-8"))
+    for module in ("bloch_state", "bloch_inspector"):
+        assert config["files"][f"../scripts/{module}.py"] == f"./scripts/{module}.py"
+
+
 def test_bundled_unitary_alpha_matches_pinned_checkout_when_available():
     source = ROOT / "src" / "unitary" / "unitary" / "alpha"
     if not source.is_dir():

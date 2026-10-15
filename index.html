@@ -9,7 +9,7 @@
     <link rel="stylesheet" href="./web/styles.css">
     <link rel="stylesheet" href="https://pyscript.net/releases/2026.6.2/core.css">
     <script type="module" src="https://pyscript.net/releases/2026.6.2/core.js"></script>
-    <script src="./web/shell.js?v=17" defer></script>
+    <script src="./web/shell.js?v=18" defer></script>
   </head>
   <body>
     <main id="game-shell" aria-busy="true">
@@ -18,7 +18,7 @@
         width="800"
         height="600"
         tabindex="0"
-        aria-label="Qungeon. Use arrow keys or Tab to navigate menus, Enter to select, and Escape to pause or go back. Move with WASD and drag gates onto nearby pillars during play."
+        aria-label="Qungeon. Use arrow keys or Tab to navigate menus, Enter to select, and Escape to pause or go back. Move with WASD and drag gates onto nearby pillars during play. B toggles the Bloch inspector; while it is open, Tab selects a pillar and F1 explains the sphere. Drag the inspector's title bar to move it."
       ></canvas>
       <div id="loading" role="status"><span class="loading-mark" aria-hidden="true">Q</span><strong>QUNGEON</strong><span>Loading...</span></div>
       <div id="error" role="alert" hidden></div>
@@ -27,7 +27,7 @@
     <script
       type="py-game"
       src="./web/main.py"
-      config="./web/pyscript.json?v=16"
+      config="./web/pyscript.json?v=17"
       target="canvas"
     ></script>
   </body>

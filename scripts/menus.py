@@ -20,6 +20,7 @@ MUTED = (154, 158, 177)
 ACCENT = (182, 164, 242)
 MINT = (161, 220, 189)
 RED = (233, 149, 159)
+HEADER_LEFT, HEADER_RIGHT = 40, 760
 
 DEFAULT_SETTINGS = {
     "decoherence": False,
@@ -167,6 +168,8 @@ class MenuUI:
 
         if self.page == "playing":
             self.game.cancel_dragging()
+            if self.game.bloch is not None:
+                self.game.bloch.mouse_captured = False
 
         self.page = page
         self.focus = 0
@@ -1483,8 +1486,8 @@ class MenuUI:
         pygame.draw.line(
             screen,
             EDGE,
-            (40, 76),
-            (760, 76),
+            (HEADER_LEFT, 76),
+            (HEADER_RIGHT, 76),
         )
 
         pygame.draw.rect(
@@ -1873,6 +1876,14 @@ class MenuUI:
 
     def draw_hud(self):
         self.draw_header()
+
+        self.text(
+            "B  Bloch sphere",
+            526,
+            39,
+            18,
+            ACCENT if self.game.bloch and self.game.bloch.enabled else MUTED,
+        )
 
         if pygame.time.get_ticks() < self.game.quantum_notice_until:
             self.text(
