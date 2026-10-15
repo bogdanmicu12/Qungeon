@@ -1,6 +1,7 @@
 """Numerical state checks and real game input for the live Bloch inspector."""
 
 import os
+from pathlib import Path
 from types import SimpleNamespace
 
 os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
@@ -211,10 +212,11 @@ def test_inspector_disabled_has_no_simulation_cost(game, monkeypatch):
 
 
 @pytest.mark.parametrize("help_open", [False, True])
-@pytest.mark.parametrize("level", [1, 2, 8, 9])
+@pytest.mark.parametrize("level", sorted(int(path.stem) for path in Path("levels").glob("*.json")))
 def test_panel_and_text_fit_canvas_without_covering_selected_pillar(game, monkeypatch, help_open, level):
     from scripts.common_functions import font
     game.start_level(level)
+    assert game.menu.page == "playing" and game.current_level == level
     key(game, pygame.K_b)
     game.bloch.help_open = help_open
     original_text = game.bloch.text
@@ -230,7 +232,7 @@ def test_panel_and_text_fit_canvas_without_covering_selected_pillar(game, monkey
     for pillar in game.bloch.pillars():
         game.bloch.select(pillar)
         game.display_game()
-        assert pygame.Rect(0, 70, 800, 374).contains(game.bloch.rect)
+        assert pygame.Rect(0, 108, 800, 417).contains(game.bloch.rect)
         assert not game.bloch.rect.colliderect(pillar.rect)
 
 
@@ -272,7 +274,7 @@ def test_drag_preserves_state_and_placement_across_selection_and_reopening(game,
     event(game, pygame.MOUSEMOTION, pos=destination, buttons=(1, 0, 0))
     game.bloch.update_hover(game.objects["6,4"].rect.center)
     assert game.bloch.selected is selected
-    assert game.bloch.rect.topleft == (388, 156)
+    assert game.bloch.rect.topleft == (388, 170)
     # Movement and gate shortcuts must not act on the puzzle during a panel drag.
     key(game, pygame.K_2)
     key(game, pygame.K_d)
@@ -282,13 +284,13 @@ def test_drag_preserves_state_and_placement_across_selection_and_reopening(game,
     assert game.hotbar.selected_key is None
     game.objects["6,4"].rect.centerx = 600
     key(game, pygame.K_TAB)
-    assert game.bloch.rect.topleft == (388, 156)
+    assert game.bloch.rect.topleft == (388, 170)
     key(game, pygame.K_b)
     key(game, pygame.K_b)
-    assert game.bloch.rect.topleft == (388, 156)
+    assert game.bloch.rect.topleft == (388, 170)
     game.restart_level()
     assert not game.bloch.manually_positioned
-    assert game.bloch.rect.topleft == (488, 96)
+    assert game.bloch.rect.topleft == (488, 110)
 
 
 @pytest.mark.parametrize("destination", [(-1000, -1000), (2000, 2000)])
@@ -345,3 +347,108 @@ def test_keyboard_selection_survives_stationary_mouse_without_pinning(game, monk
     assert game.bloch.selected is game.objects["6,4"]
     event(game, pygame.MOUSEMOTION, pos=game.objects["5,4"].rect.center)
     assert game.bloch.selected is game.objects["5,4"]
+
+
+def test_swap_drag_updates_both_states_and_preserves_inventory_rules(game):
+    from scripts.game_objects import gates
+
+    control, target = game.objects["5,4"], game.objects["6,4"]
+    target.apply_effect(game, gates["X"])
+    game.hotbar.add_item("SWAP", 1)
+    game.player.update_position(4, 4)
+    key(game, pygame.K_b)
+    before = game.bloch.states()
+    game.bloch.rect.topleft = (180, 100)
+    game.hotbar.slots["SWAP"].dragging = True
+    event(game, pygame.MOUSEBUTTONUP, button=1, pos=control.rect.center)
+    assert control.dragging
+    click(game, target.rect.center)
+
+    assert game.bloch.last_gate == "SWAP"
+    assert game.bloch.previous == before
+    assert game.bloch.states()[control.qubit] == before[target.qubit]
+    assert game.bloch.states()[target.qubit] == before[control.qubit]
+    assert "SWAP" not in game.hotbar.slots
+
+
+def test_shared_editor_states_and_seed_levels_reset_the_inspector(game):
+    from scripts.level_share import encode_level
+
+    key(game, pygame.K_b)
+    data = {
+        "editor_created": True,
+        "tiles": {"(1, 1)": "START", "(2, 1)": "EMPTY", "(3, 1)": "END"},
+        "objects": {}, "quantum_objects": ["(2, 1)"],
+        "pillar_states": {"(2, 1)": {
+            "x": {"real": 2**-0.5, "imag": 0},
+            "y": {"real": 0, "imag": 2**-0.5},
+        }},
+        "gates": {"X": 1}, "effects": [],
+    }
+    game.start_seed_level(encode_level(data))
+    game.display_game()
+    assert game.bloch.enabled and not game.bloch.previous
+    assert game.bloch.states()[game.objects["2,1"].qubit].description == "Pure state |+i>"
+    game.restart_level()
+    assert game.bloch.selected is None
+    assert game.bloch.states()[game.objects["2,1"].qubit].description == "Pure state |+i>"
+    game.start_seed_level("QG-000000000000002A")
+    game.display_game()
+    assert game.bloch.visible() and not game.bloch.previous
+    assert set(game.bloch.states()) == {pillar.qubit for pillar in game.bloch.pillars()}
+    game.open_editor()
+    key(game, pygame.K_b)
+    assert not game.bloch.visible() and game.bloch.enabled
+
+
+def test_main_toolbar_and_footer_remain_clear_with_the_inspector(game, monkeypatch):
+    from scripts.common_functions import font
+
+    def obsolete_toolbar(*args):
+        pytest.fail("The Bloch feature must not add a second gate toolbar")
+
+    monkeypatch.setattr(game.hotbar, "draw_selection_panel", obsolete_toolbar)
+    game.display_game()
+    toolbar_before = pygame.image.tobytes(game.screen.subsurface((0, 525, 800, 75)), "RGB")
+    key(game, pygame.K_b)
+    game.display_game()
+    assert pygame.image.tobytes(game.screen.subsurface((0, 525, 800, 75)), "RGB") == toolbar_before
+
+    labels = []
+    def record_text(text, x, y, size=22, color=None, centered=False):
+        rect = pygame.Rect((0, 0), font(size).size(text))
+        if centered:
+            rect.midtop = (x, y)
+        else:
+            rect.topleft = (x, y)
+        labels.append((text, rect))
+
+    monkeypatch.setattr(game.menu, "text", record_text)
+    game.show_quantum_notice("H was selected")
+    game.menu.draw_hud()
+    assert any(text == "B  Bloch sphere" for text, _ in labels)
+    for index, (text, rect) in enumerate(labels):
+        assert game.screen.get_rect().contains(rect), text
+        for other_text, other_rect in labels[index+1:]:
+            assert not rect.colliderect(other_rect), (text, other_text)
+    game.bloch.select(game.objects["6,4"])
+    game.bloch.rect.x = 40
+    assert all(not game.bloch.rect.colliderect(rect) for _, rect in labels)
+
+
+def test_gate_drag_keeps_main_hotbar_working_above_the_inspector(game):
+    slot = game.hotbar.slots["H"]
+    position = slot.rect.center
+    event(game, pygame.MOUSEBUTTONDOWN, button=1, pos=position)
+    assert slot.dragging
+    event(game, pygame.MOUSEBUTTONUP, button=1, pos=(0, 0))
+    assert not slot.dragging and slot.count == 1
+    key(game, pygame.K_b)
+    game.player.update_position(4, 4)
+    pillar = game.objects["5,4"]
+    game.bloch.rect.topleft = (180, 100)
+    event(game, pygame.MOUSEBUTTONDOWN, button=1, pos=slot.rect.center)
+    event(game, pygame.MOUSEBUTTONUP, button=1, pos=pillar.rect.center)
+    assert "H" not in game.hotbar.slots
+    assert game.bloch.last_gate == "H"
+    assert game.bloch.states()[pillar.qubit].description == "Pure state |0>"

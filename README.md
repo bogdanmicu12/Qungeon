@@ -153,7 +153,7 @@ column order, as in the Quantum Lab. **?** / **F1** explains the sphere.
 
 The solid mint arrow shows the exact simulated local state. After applying a
 gate with the inspector enabled, the dashed amber arrow and ring show the state
-before that gate, including controlled gates. Probabilities and passability are
+before that gate, including controlled gates and SWAP. Probabilities and passability are
 shown below. For example, Z changes |+> to |-> without changing its 50/50
 measurement probabilities. Inspection never measures a pillar or spends a gate.
 
@@ -241,6 +241,25 @@ or Space selects. Escape goes back. During play, Escape (or the Pause button)
 freezes gameplay, including movement and correlation animations. Resume,
 restart the current level, return to the menu, or open How to Play from there.
 Changing tabs or losing window focus also pauses the game.
+
+In the level editor, **Copy share code**, **Save**, **Save & exit**, and **Test**
+check both the level format and whether the exit can be reached. The clicked
+button shows a spinner before checking starts. Checks run in a Web Worker in
+the browser and a separate Python process on desktop, so editing stays responsive.
+Opening the browser editor prepares its separate Python runtime and imports the
+quantum solver in the background; the status distinguishes this preparation from
+searching for a solution. Later checks reuse that worker. The checked snapshot must still
+match the editor before it can be copied, saved, or tested. Back/Escape cancels
+an ongoing check. Unsolvable levels and checks that reach their search limit
+stay in the editor with an explanation; **Save & exit** returns to the menu only
+after a successful check and save.
+After **Set state**, pillars immediately show the configured probabilities:
+white/translucent for |0>, blue for |1>, and a red/blue mix for superpositions.
+The selected pillar also has a preview and P(0)/P(1) readout. State inputs are
+normalized when applied.
+To make a solid blue pillar, select it, click **Use |1>**, then **Set state**.
+**Use |0>** selects the white, walkable state. The two editable boxes are the
+amplitudes of |0> and |1>; clicking a box selects its text for replacement.
 
 Completing a level opens a completion screen unless intermediate screens are
 disabled for a full run. The failure screen is driven by the level solver below: it

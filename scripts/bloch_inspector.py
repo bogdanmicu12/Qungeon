@@ -45,7 +45,7 @@ class BlochInspector:
         self.previous = {}
         self.last_gate = None
         self.ready = False
-        self.rect = pygame.Rect(HEADER_RIGHT-WIDTH, 96, WIDTH, HEIGHT)
+        self.rect = pygame.Rect(HEADER_RIGHT-WIDTH, 110, WIDTH, HEIGHT)
         self.mouse_captured = False
         self.drag_offset = None
         self.manually_positioned = False

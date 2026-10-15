@@ -42,3 +42,14 @@ class GroupingSystem:
         """Joins the group of one object with the group of another object."""
         self.merge(obj.group, reference_obj.group)
         return obj.group
+
+    def swap(self, obj1, obj2):
+        """Exchanges the group slots of two objects, as a SWAP gate exchanges their states.
+
+        Each object takes over the other's place, including its index in the group, so
+        the group's existing correlation histogram still lines up with its objects.
+        """
+        group1, group2 = obj1.group, obj2.group
+        index1, index2 = group1.objects.index(obj1), group2.objects.index(obj2)
+        group1.objects[index1], group2.objects[index2] = obj2, obj1
+        obj1.group, obj2.group = group2, group1
