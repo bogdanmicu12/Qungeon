@@ -1,0 +1,28 @@
+{
+  "tiles": {
+    "(3,4)": "START",
+    "(4,4)": "EMPTY",
+    "(5,4)": "EMPTY",
+    "(6,4)": "END",
+    "(3,3)": "WALL",
+    "(4,3)": "WALL",
+    "(5,3)": "WALL",
+    "(6,3)": "WALL"
+  },
+  "objects": {
+    "(4,4)": "X"
+  },
+  "quantum_objects": [
+    "(5,4)"
+  ],
+  "gates": {},
+  "effects": [
+    { "position": "(5,4)", "effect": "Flip" }
+  ],
+  "tutorial": [
+    { "trigger": "on_start", "text": "Welcome to Qungeon! Use WASD or the arrow keys to move." },
+    { "trigger": "on_pickup", "item": "X", "text": "You picked up an X-Gate. Drag it from your hotbar onto a nearby pillar to flip its state." },
+    { "trigger": "on_apply", "position": "(5,4)", "text": "Flipped! A pillar is only passable when it is exactly |0>. Walk into it now." },
+    { "trigger": "on_win", "text": "Level complete! Head to the next tutorial level to learn about superposition." }
+  ]
+}

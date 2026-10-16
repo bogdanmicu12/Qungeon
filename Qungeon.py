@@ -54,6 +54,8 @@ from scripts.menus import (
 from scripts.quantum_run import QuantumRun, capture_circuit
 from scripts.level_editor import LevelEditor
 from scripts.level_share import decode_level
+# tutorial.py only depends on level_validation, not cirq, so it's safe up here too.
+from scripts.tutorial import TutorialController
 
 
 # ---------------------------------------------------------------------------
@@ -113,6 +115,7 @@ HOP_DELAY_MS = 10
 SCREEN_BG_COLOR = BG
 GAME_TITLE = "Qungeon"
 DEFAULT_START_LEVEL = 1
+TUTORIAL_LEVELS = ["tutorial_1", "tutorial_2"]
 
 # How long the player keeps playing after the solver proves the level is lost.
 STUCK_DELAY_MS = 1800
@@ -187,6 +190,12 @@ class Game:
         self.quantum_notice = ""
         self.quantum_notice_color = ACCENT
         self.quantum_notice_until = 0
+
+        # Guided tutorial state. No quantum dependency, so it is safe to build
+        # before the menu (a deep link may load a level during construction).
+        self.tutorial = TutorialController()
+        self.tutorial_step = 0
+        self.pending_advance = False
 
         # Main branch functionality: gate help window.
         self.gate_help_open = False
@@ -358,6 +367,7 @@ class Game:
                 effect,
             )
 
+        self.tutorial.load(level_data)
         self.resources = self.resource_signature()
         self.bloch.finish_level()
 
@@ -406,6 +416,10 @@ class Game:
         self.correlation_elapsed = 0
         self.stuck_elapsed = None
 
+        # A level advance held back by a tutorial popup must never leak into
+        # whatever level is loaded next (restart, menu, another level).
+        self.pending_advance = False
+
     def hop_animation(
         self,
         start_pos,
@@ -444,9 +458,14 @@ class Game:
         if progress == 1:
             self.player.update_position(*end)
             self.hop = None
+            self.tutorial.on_enter(end)
 
             if self.tiles[end].type == TileType.END:
-                self.advance_level()
+                self.tutorial.on_win()
+                if self.tutorial.active:
+                    self.pending_advance = True   # advance after the popup is dismissed
+                else:
+                    self.advance_level()
 
     def update_position(self, direction):
         """Update the player's position based on movement input."""
@@ -530,7 +549,20 @@ class Game:
             )
 
     def advance_level(self):
-        """Finish the current level and optionally advance to the next."""
+        """Finish the current level and optionally advance to the next.
+
+        Tutorial levels chain straight to the next step without capturing a
+        hardware circuit; other levels keep the solved circuit and open the
+        completion screen.
+        """
+        if self.run_mode == "tutorial":
+            next_step = self.tutorial_step + 1
+            if next_step < len(TUTORIAL_LEVELS):
+                self.start_tutorial(next_step)
+            else:
+                self.menu.open("complete")
+            return
+
         self.stuck_elapsed = None
 
         try:
@@ -730,9 +762,31 @@ class Game:
         self.menu.open("playing")
         return True
 
+    def start_tutorial(self, step=0):
+        """Start (or advance to) one guided tutorial step.
+
+        Tutorial levels are addressed by name (tutorial_1.json, ...) rather
+        than the numbered ids in available_levels, so current_level is set to
+        a negative sentinel (-1, -2, ...) purely for display - see
+        MenuUI.level_label(). Loads before committing any state, same as
+        start_level, so a broken tutorial file can't strand the player.
+        """
+        try:
+            self.load_level(f"./levels/{TUTORIAL_LEVELS[step]}.json")
+        except LevelError as err:
+            print(f"Could not load tutorial step {step}: {err}")
+            return
+        self.tutorial_step = step
+        self.run_mode = "tutorial"
+        self.current_level = -(step + 1)
+        self.quantum_run = None
+        self.menu.open("playing")
+
     def restart_level(self):
-        """Restart the current level, including deterministic custom levels."""
-        if self.current_share_code is not None:
+        """Restart the current level, including tutorial and custom levels."""
+        if self.run_mode == "tutorial":
+            self.start_tutorial(self.tutorial_step)
+        elif self.current_share_code is not None:
             self.start_seed_level(
                 self.current_share_code
             )
@@ -937,6 +991,9 @@ class Game:
                             obj,
                             other_obj,
                         )
+
+                    if obj.control in ("CNOT", "CHAD", "SWAP"):
+                        self.tutorial.on_apply(obj.position)
 
                     return obj.control
 
@@ -1177,8 +1234,15 @@ class Game:
 
             previous_page = self.menu.page
 
+            # While a tutorial popup is up it owns all input.
+            if (
+                self.menu.page == "playing"
+                and self.tutorial.active
+            ):
+                self.handle_tutorial_event(event)
+
             # Preserve level editor functionality.
-            if self.menu.page == "editor":
+            elif self.menu.page == "editor":
                 self.editor.handle_event(event)
 
             elif self.menu.page != "playing":
@@ -1305,6 +1369,20 @@ class Game:
 
         elif event.key == K_r:
             self.restart_level()
+
+    def handle_tutorial_event(self, event):
+        if event.type == KEYDOWN and event.key == K_ESCAPE:
+            self.menu.open("paused")
+        elif event.type == KEYDOWN and event.key in (pygame.K_RETURN, pygame.K_SPACE):
+            self.advance_tutorial_popup()
+        elif event.type == MOUSEBUTTONDOWN and event.button == 1:
+            self.advance_tutorial_popup()
+
+    def advance_tutorial_popup(self):
+        self.tutorial.dismiss()
+        if not self.tutorial.active and self.pending_advance:
+            self.pending_advance = False
+            self.advance_level()
 
 
 if __name__ == "__main__":
