@@ -202,6 +202,14 @@ class MenuUI:
                 ("main", "Return to menu"),
             ]
 
+            # Tutorial levels skip circuit capture, so there is nothing to run.
+            if self.game.run_mode == "tutorial":
+                actions = [
+                    action
+                    for action in actions
+                    if action[0] != "quantum_run"
+                ]
+
             return [
                 (
                     action,
@@ -231,7 +239,7 @@ class MenuUI:
                         ("levels", "Level select", "02"),
                         ("editor", "Level editor", "03"),
                         ("settings", "Settings", "04"),
-                        ("help", "How to play", "05"),
+                        ("tutorial", "Tutorial", "05"),
                     )
                 )
             ] + [
@@ -555,6 +563,7 @@ class MenuUI:
             "start",
             "normal_levels",
             "load_seed",
+            "tutorial",
         }
 
         if not released and (action in gameplay_actions or action.startswith("level:")):
@@ -621,6 +630,9 @@ class MenuUI:
                 self.game.available_levels[0],
                 "full",
             )
+
+        elif action == "tutorial":
+            self.game.start_tutorial()
 
         elif action == "retry":
             self.game.restart_level()
@@ -1661,9 +1673,16 @@ class MenuUI:
                 True,
             )
 
+            run_label = (
+                "TUTORIAL RUN"
+                if self.game.run_mode == "tutorial"
+                else "FULL RUN"
+                if full_run
+                else "SINGLE LEVEL"
+            )
+
             self.text(
-                f"LEVEL {self.game.current_level:02}   /   "
-                f"{'FULL RUN' if self.game.run_mode == 'full' else 'SINGLE LEVEL'}",
+                f"{self.level_label()}   /   {run_label}",
                 400,
                 220,
                 19,
@@ -1676,10 +1695,14 @@ class MenuUI:
                     "The level can no longer be completed."
                     if self.page == "failed"
                     else (
-                        "All levels completed."
-                        if full_run
-                        and not self.game.has_next_level()
-                        else "Your solved circuit is ready to explore."
+                        "Tutorial completed."
+                        if self.game.run_mode == "tutorial"
+                        else (
+                            "All levels completed."
+                            if full_run
+                            and not self.game.has_next_level()
+                            else "Your solved circuit is ready to explore."
+                        )
                     )
                 )
 
@@ -1874,6 +1897,15 @@ class MenuUI:
         if self.page == "loading":
             self.loading_drawn = True
 
+    def level_label(self):
+        """Tutorial levels use negative sentinel ids (-1, -2, ...) so they
+        never collide with the numbered .json levels in ./levels; display
+        those as "TUTORIAL n" instead of "LEVEL nn"."""
+        level = self.game.current_level
+        if level < 0:
+            return f"TUTORIAL {-level}"
+        return f"LEVEL {level:02}"
+
     def draw_hud(self):
         self.draw_header()
 
@@ -1891,7 +1923,7 @@ class MenuUI:
                 40,
                 89,
                 18,
-                ACCENT,
+                self.game.quantum_notice_color,
             )
 
         if self.game.current_share_code is not None:
@@ -1906,7 +1938,7 @@ class MenuUI:
             )
         else:
             self.text(
-                f"LEVEL {self.game.current_level:02}",
+                self.level_label(),
                 362,
                 39,
                 22,
@@ -1958,3 +1990,39 @@ class MenuUI:
             18,
             MUTED,
         )
+
+        tutorial = getattr(self.game, "tutorial", None)
+        if tutorial and tutorial.active:
+            self.draw_tutorial_popup(tutorial.current)
+
+    def wrap_text(self, text, max_width, size):
+        """Greedy word-wrap; returns lines that each fit within max_width px."""
+        lines, line = [], ""
+        for word in text.split(" "):
+            candidate = f"{line} {word}".strip()
+            if font(size).size(candidate)[0] > max_width and line:
+                lines.append(line)
+                line = word
+            else:
+                line = candidate
+        if line:
+            lines.append(line)
+        return lines
+
+    def draw_tutorial_popup(self, text):
+        """Draw the dialogue box for the current tutorial step.
+
+        Sits between the board and the hotbar so it never covers the gates the
+        player is being told to use. Input is handled by
+        Game.handle_tutorial_event, not here.
+        """
+        screen = self.game.screen
+        box = pygame.Rect(60, 400, 680, 112)
+        pygame.draw.rect(screen, (8, 10, 17), box.move(0, 4))
+        pygame.draw.rect(screen, PANEL, box)
+        pygame.draw.rect(screen, ACCENT, box, 2)
+        pygame.draw.rect(screen, ACCENT, (box.x, box.y, box.width, 22))
+        self.text("TUTORIAL", box.x + 10, box.y + 3, 15, BG)
+        for i, line in enumerate(self.wrap_text(text, box.width - 24, 19)):
+            self.text(line, box.x + 12, box.y + 30 + i * 22, 19, INK)
+        self.text("ENTER / Click to continue", box.x + 12, box.bottom - 20, 16, MUTED)
