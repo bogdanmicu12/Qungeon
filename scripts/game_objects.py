@@ -114,7 +114,14 @@ class LootableObject(BaseObject):
         self.rect.x = BOARD_ORIGIN_X + x * BLOCK_SIZE
         self.rect.y = BOARD_ORIGIN_Y + y * BLOCK_SIZE
         self.item = item
-        add_text(self, item, box_rect.width, box_rect.height)
+        add_text(
+            self,
+            item,
+            self.image.get_width() // 2,
+            self.image.get_height() // 2,
+            centered=True,
+            size=14,
+        )
 
     def function(self, game, x, y):
         """Adds the item to the player's hotbar and removes the object."""
