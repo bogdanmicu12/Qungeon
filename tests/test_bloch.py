@@ -401,18 +401,24 @@ def test_shared_editor_states_and_seed_levels_reset_the_inspector(game):
     assert not game.bloch.visible() and game.bloch.enabled
 
 
-def test_main_toolbar_and_footer_remain_clear_with_the_inspector(game, monkeypatch):
+def test_gate_selector_and_footer_remain_clear_with_the_inspector(game, monkeypatch):
     from scripts.common_functions import font
 
-    def obsolete_toolbar(*args):
-        pytest.fail("The Bloch feature must not add a second gate toolbar")
+    draw_selection_panel = game.hotbar.draw_selection_panel
+    panel_draws = []
 
-    monkeypatch.setattr(game.hotbar, "draw_selection_panel", obsolete_toolbar)
+    def track_selection_panel(screen):
+        panel_draws.append(True)
+        draw_selection_panel(screen)
+
+    monkeypatch.setattr(game.hotbar, "draw_selection_panel", track_selection_panel)
     game.display_game()
-    toolbar_before = pygame.image.tobytes(game.screen.subsurface((0, 525, 800, 75)), "RGB")
+    assert len(panel_draws) == 1
+    bottom_before = pygame.image.tobytes(game.screen.subsurface((0, 525, 800, 75)), "RGB")
     key(game, pygame.K_b)
     game.display_game()
-    assert pygame.image.tobytes(game.screen.subsurface((0, 525, 800, 75)), "RGB") == toolbar_before
+    assert len(panel_draws) == 2
+    assert pygame.image.tobytes(game.screen.subsurface((0, 525, 800, 75)), "RGB") == bottom_before
 
     labels = []
     def record_text(text, x, y, size=22, color=None, centered=False):

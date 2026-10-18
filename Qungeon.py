@@ -30,8 +30,6 @@ from pygame.locals import (
 
 from scripts.grouping_system import GroupingSystem
 from scripts.common_functions import (
-    handle_slot_mouse_down,
-    hover,
     update_mouse_drag,
 )
 from scripts.level_validation import (
@@ -845,21 +843,19 @@ class Game:
                     sprite.rect,
                 )
 
-        # Preserve combined-branch hotbar rendering.
-        if self.hotbar is not None:
-            for slot in self.hotbar.slots.values():
-                if not slot.dragging:
-                    self.screen.blit(slot.image, slot.rect)
+        if interactive and self.hotbar is not None:
+            if hasattr(
+                self.hotbar,
+                "draw_selection_panel",
+            ):
+                self.hotbar.draw_selection_panel(
+                    self.screen
+                )
 
         # Main branch help/selection UI where supported.
         if interactive and self.hotbar is not None:
             if self.settings["entanglement_guides"]:
                 self.entanglement_visuals()
-
-            hover(
-                self.hotbar.slots,
-                self.screen,
-            )
 
         self.menu.draw_hud()
 
@@ -1231,9 +1227,8 @@ class Game:
                         )
 
                     else:
-                        handle_slot_mouse_down(
-                            self.hotbar.slots,
-                            event,
+                        self.hotbar.handle_selection_mouse_down(
+                            event
                         )
 
             elif (
