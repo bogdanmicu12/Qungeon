@@ -293,13 +293,13 @@ class Hotbar:
             RED,
         )
 
-        entry_width = 88
+        entry_width = 78
 
         panel = pygame.Rect(
             0,
-            444,
+            452,
             len(gates) * entry_width + 20,
-            70,
+            58,
         )
         panel.centerx = 400
 
@@ -327,9 +327,9 @@ class Hotbar:
 
             card = pygame.Rect(
                 panel.x + 8 + (index - 1) * entry_width,
-                panel.y + 9,
-                82,
-                52,
+                panel.y + 8,
+                72,
+                42,
             )
 
             self.selection_rects[key] = card.copy()
@@ -359,10 +359,10 @@ class Hotbar:
             )
 
             key_badge = pygame.Rect(
-                card.x + 6,
-                card.y + 15,
-                24,
-                24,
+                card.x + 5,
+                card.y + 11,
+                20,
+                20,
             )
 
             pygame.draw.rect(
@@ -371,7 +371,7 @@ class Hotbar:
                 key_badge,
             )
 
-            key_text = font(17).render(
+            key_text = font(14).render(
                 str(index),
                 True,
                 BG if selected else INK,
@@ -384,7 +384,7 @@ class Hotbar:
                 ),
             )
 
-            gate_text = font(15).render(
+            gate_text = font(14).render(
                 key,
                 True,
                 RED if unavailable else INK,
@@ -394,13 +394,13 @@ class Hotbar:
                 gate_text,
                 gate_text.get_rect(
                     midleft=(
-                        card.x + 36,
-                        card.y + 20,
+                        card.x + 30,
+                        card.y + 12,
                     ),
                 ),
             )
 
-            count_text = font(13).render(
+            count_text = font(12).render(
                 f"x{count}",
                 True,
                 RED if unavailable else MUTED,
@@ -410,8 +410,8 @@ class Hotbar:
                 count_text,
                 count_text.get_rect(
                     midleft=(
-                        card.x + 36,
-                        card.y + 37,
+                        card.x + 30,
+                        card.y + 28,
                     ),
                 ),
             )
@@ -423,7 +423,7 @@ class Hotbar:
                 slot.hover(screen)
                 break
 
-        instruction = font(15).render(
+        instruction = font(14).render(
             "Select with keys and move over a pillar, "
             "or drag when next to a pillar",
             True,
@@ -433,11 +433,11 @@ class Hotbar:
         screen.blit(
             instruction,
             instruction.get_rect(
-                midtop=(400, panel.bottom + 7),
+                midtop=(400, panel.bottom + 4),
             ),
         )
 
-        help_instruction = font(15).render(
+        help_instruction = font(14).render(
             "Press H for help on gates",
             True,
             MUTED,
@@ -446,7 +446,7 @@ class Hotbar:
         screen.blit(
             help_instruction,
             help_instruction.get_rect(
-                midtop=(400, panel.bottom + 23),
+                midtop=(400, panel.bottom + 19),
             ),
         )
 

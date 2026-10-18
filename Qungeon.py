@@ -69,7 +69,6 @@ alpha = None
 level_solver = None
 Hotbar = None
 BlochInspector = None
-BLOCK_SIZE = None
 LootableObject = Player = QuantumObject = Tile = TileType = None
 pillar_image = None
 gates = None
@@ -77,7 +76,7 @@ gates = None
 
 def load_gameplay():
     """Import the quantum/gameplay stack. Idempotent; the first call does work."""
-    global alpha, level_solver, Hotbar, BlochInspector, BLOCK_SIZE
+    global alpha, level_solver, Hotbar, BlochInspector
     global LootableObject, Player, QuantumObject
     global Tile, TileType, pillar_image, gates
 
@@ -88,7 +87,6 @@ def load_gameplay():
     from scripts import level_solver
 
     from scripts.game_objects import (
-        BLOCK_SIZE,
         LootableObject,
         Player,
         QuantumObject,
@@ -1013,31 +1011,8 @@ class Game:
                 ):
                     for entangled_obj in obj.group.objects:
                         if obj != entangled_obj:
-                            start_pos = (
-                                (
-                                    obj.position[0]
-                                    + 0.5
-                                )
-                                * BLOCK_SIZE,
-                                (
-                                    obj.position[1]
-                                    + 0.5
-                                )
-                                * BLOCK_SIZE,
-                            )
-
-                            end_pos = (
-                                (
-                                    entangled_obj.position[0]
-                                    + 0.5
-                                )
-                                * BLOCK_SIZE,
-                                (
-                                    entangled_obj.position[1]
-                                    + 0.5
-                                )
-                                * BLOCK_SIZE,
-                            )
+                            start_pos = obj.rect.center
+                            end_pos = entangled_obj.rect.center
 
                             pygame.draw.line(
                                 self.screen,
