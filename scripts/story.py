@@ -81,11 +81,27 @@ ROOMS = {
     ),
     9: Room(
         "The Outer Gate",
-        "Daylight beyond the last gate. One more room between me and the surface.",
-        "The outer lock opens. At last, a passage into daylight.",
+        "Daylight beyond this gate. The passage bends again before I can reach it.",
+        "The outer lock opens. A warmer draft leads into another passage.",
         "CHAD means controlled H: a control in 1 applies H to the target, and a control in 0 leaves it alone. "
         "As with CNOT, stand beside the control; the target can be far away.",
         ((3, 3, "control"), (8, 3, "arch")),
+    ),
+    10: Room(
+        "The Exchanged Lock",
+        "A box beyond the first lock. Its gate might open the passage below.",
+        "Trading the pillars' states opened another route toward the light.",
+        "Use X to clear the first lock and collect SWAP. This gate exchanges two pillars' "
+        "states. Choose a nearby pillar first, then drag to another pillar to exchange their states.",
+        ((3, 3, "shared"), (6, 3, "arch")),
+    ),
+    12: Room(
+        "The Borrowed Light",
+        "Two locks and a winding passage. Perhaps one pillar can borrow the other's state.",
+        "The last passage opens. Warm light spills across the dungeon floor.",
+        "SWAP exchanges the quantum states of two pillars, including their correlations. "
+        "Stand beside the first pillar, then choose the other. CNOT still uses the first as its control.",
+        ((3, 4, "shared"), (10, 7, "arch")),
     ),
 }
 
@@ -95,9 +111,8 @@ LIGHT = (230, 220, 185)
 
 
 def is_escape(game):
-    """Single-room practice and future unknown levels retain ordinary completion."""
-    return (game.run_mode == "full" and game.current_level == 9 and 9 in ROOMS
-            and not game.has_next_level())
+    """A full run always ends with escape, regardless of the final level number."""
+    return game.run_mode == "full" and not game.has_next_level()
 
 
 def draw_arch(surface, rect, color, width=2):
@@ -117,38 +132,41 @@ def draw_marks(game):
         if tile is None or tile.type.name != "WALL":
             continue
         # Stay inside the stone and below the HUD, even on edited maps.
-        left, top = tile.rect.x + 12, tile.rect.y + 12
+        # Draw at the original tile size, then scale with the board transform.
+        decoration = pygame.Surface((64, 64), pygame.SRCALPHA)
+        left, top = 12, 12
         rect = pygame.Rect(left, top, 24, 24)
-        if not pygame.Rect(0, 96, 800, 348).contains(rect):
+        if not pygame.Rect(0, 96, 800, 348).contains(tile.rect):
             continue
         color = STONE
         if symbol == "arch":
-            draw_arch(game.screen, (left + 3, top, 18, 22), color)
+            draw_arch(decoration, (left + 3, top, 18, 22), color)
             # Broken early markings gradually resolve into a complete arch.
             if game.current_level <= 3:
-                pygame.draw.line(game.screen, (119, 115, 127),
+                pygame.draw.line(decoration, (119, 115, 127),
                                  (left + 3, top + 8), (left + 3, top + 12), 2)
         elif symbol == "hatch":
-            pygame.draw.rect(game.screen, color, rect.inflate(-4, -2), 2)
-            pygame.draw.line(game.screen, color, (left + 3, top + 12), (left + 21, top + 12), 3)
+            pygame.draw.rect(decoration, color, rect.inflate(-4, -2), 2)
+            pygame.draw.line(decoration, color, (left + 3, top + 12), (left + 21, top + 12), 3)
         elif symbol in ("pair", "reverse", "waves"):
             for offset in (4, 16):
                 direction = -1 if symbol != "pair" and offset == 16 else 1
                 points = [(left, top + offset), (left + 6, top + offset - 3 * direction),
                           (left + 12, top + offset), (left + 18, top + offset + 3 * direction),
                           (left + 24, top + offset)]
-                pygame.draw.lines(game.screen, color, False, points, 2)
+                pygame.draw.lines(decoration, color, False, points, 2)
         elif symbol == "notches":
             for offset in (2, 10, 18):
-                pygame.draw.line(game.screen, color, (left + offset, top + 5),
+                pygame.draw.line(decoration, color, (left + offset, top + 5),
                                  (left + offset + 3, top + 17), 2)
         elif symbol == "control":
-            pygame.draw.circle(game.screen, color, (left + 3, top + 12), 3)
-            pygame.draw.line(game.screen, color, (left + 6, top + 12), (left + 18, top + 12), 2)
-            pygame.draw.rect(game.screen, color, (left + 17, top + 7, 7, 10), 2)
+            pygame.draw.circle(decoration, color, (left + 3, top + 12), 3)
+            pygame.draw.line(decoration, color, (left + 6, top + 12), (left + 18, top + 12), 2)
+            pygame.draw.rect(decoration, color, (left + 17, top + 7, 7, 10), 2)
         elif symbol == "shared":
             for offset in (0, 8, 16):
-                pygame.draw.rect(game.screen, color, (left + offset, top + 6, 8, 12), 2)
+                pygame.draw.rect(decoration, color, (left + offset, top + 6, 8, 12), 2)
+        game.screen.blit(pygame.transform.scale(decoration, tile.rect.size), tile.rect)
 
     if game.current_level >= 6:
         for (x, y), tile in game.tiles.items():

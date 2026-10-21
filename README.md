@@ -4,7 +4,7 @@ Find a way out of a quantum dungeon, one understood rule at a time. Use gates
 to change the states of pillars and open a route to each level's END tile.
 Stand next to a pillar to use a gate on it.
 
-The nine rooms share a light escape story, **The Way Out**. A full run opens with
+The eleven rooms share a light escape story, **The Way Out**. A full run opens with
 a short pixel animation: a ruined floor crumbles, the character falls into the
 dungeon, and lands in the first room. **Skip animation** (or Escape) goes straight
 to the opening thought; **Find a way out** (Enter, Space, or Escape) begins play.
@@ -14,7 +14,8 @@ Level selection, direct links, and restarts go straight to the puzzle.
 Old wall markings lead toward daylight. Brief player thoughts above each room
 blend the escape story with clues, leaving gate combinations to discover.
 All puzzles can be played independently, and skipping intermediate completion
-screens keeps the run moving. Only finishing a full run shows the escape ending.
+screens keeps the run moving. Only finishing a full run shows the escape ending, after its final level.
+The original introductory level remains level 1; the SWAP puzzles are levels 10 and 12.
 
 For more explanation, press **H** for the gate guide or open **How to play**
 from Pause for the current room's concept. Story content and static decorations
@@ -194,8 +195,10 @@ graphics dependency or build step is required.
 UI text uses a bundled ASCII subset of DejaVu Sans; its license is in
 `assets/DejaVu-LICENSE.txt`.
 
-- **Start run** opens run settings first, then plays every level in order.
-- **Level select** opens any of the nine available puzzles as a single level.
+- **Play > Normal levels** opens run settings first, then plays every level in order.
+- **Play > Custom level code** opens an exact editor level from its QGL share code.
+- **Level editor** creates levels with gates, pickups, and custom pillar states.
+- **Level select** opens any of the eleven available puzzles as a single level.
 - **Settings** saves preferences automatically: in `.qungeon-settings.json` on
   desktop, or browser local storage. Preferences are separate between versions.
 - **Decoherence time mode** is a saved preference only, marked coming soon;
@@ -226,6 +229,25 @@ or Space selects. Escape goes back. During play, Escape (or the Pause button)
 freezes gameplay, including movement and correlation animations. Resume,
 restart the current level, return to the menu, or open How to Play from there.
 Changing tabs or losing window focus also pauses the game.
+
+In the level editor, **Copy share code**, **Save**, **Save & exit**, and **Test**
+check both the level format and whether the exit can be reached. The clicked
+button shows a spinner before checking starts. Checks run in a Web Worker in
+the browser and a separate Python process on desktop, so editing stays responsive.
+Opening the browser editor prepares its separate Python runtime and imports the
+quantum solver in the background; the status distinguishes this preparation from
+searching for a solution. Later checks reuse that worker. The checked snapshot must still
+match the editor before it can be copied, saved, or tested. Back/Escape cancels
+an ongoing check. Unsolvable levels and checks that reach their search limit
+stay in the editor with an explanation; **Save & exit** returns to the menu only
+after a successful check and save.
+After **Set state**, pillars immediately show the configured probabilities:
+white/translucent for |0>, blue for |1>, and a red/blue mix for superpositions.
+The selected pillar also has a preview and P(0)/P(1) readout. State inputs are
+normalized when applied.
+To make a solid blue pillar, select it, click **Use |1>**, then **Set state**.
+**Use |0>** selects the white, walkable state. The two editable boxes are the
+amplitudes of |0> and |1>; clicking a box selects its text for replacement.
 
 Completing a level opens a completion screen unless intermediate screens are
 disabled for a full run. The failure screen is driven by the level solver below: it
@@ -309,7 +331,7 @@ rule; the locks are fictional, while their gate operations follow quantum rules.
 | --------------- | --------------------------------------------------------- |
 | `W` `A` `S` `D` | Move                                                      |
 | `R`             | Restart level                                             |
-| `1`–`4`         | Select X, H, Z, or RotY; move into a pillar to apply it    |
+| `1`–`7`         | Select a gate; move into a pillar to apply a single-qubit gate |
 | `H`             | Open or close the gate guide                              |
 | `Esc` / `Q`     | Pause / open the in-game menu                             |
 | Mouse drag      | Drag a gate from the hotbar onto a pillar                 |
@@ -337,6 +359,9 @@ applies to the control pillar only — the target can be anywhere on the map.
 | `RotY` | Partial Y rotation — nudges the state part-way between \|0> and \|1>        |
 | `CNOT` | Controlled flip: flips the target when the control is \|1>                  |
 | `CHAD` | Controlled H: applies H to the target when the control is \|1>              |
+| `SWAP` | Exchanges the quantum states of two pillars, including their correlations |
+
+**SWAP** uses the same two-pillar drag: choose a nearby first pillar, then a different pillar anywhere on the map.
 
 ## Reading a pillar
 

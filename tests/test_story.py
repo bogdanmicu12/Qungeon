@@ -100,14 +100,14 @@ def test_story_rendering_preserves_puzzle_and_fits_existing_panels(game, level):
 @pytest.mark.parametrize("show_completion", [False, True])
 def test_escape_uses_existing_final_summary_and_does_not_appear_in_practice(game, monkeypatch, show_completion):
     game.settings["full_run_completion"] = show_completion
-    game.start_level(9, "full")
+    game.start_level(game.available_levels[-1], "full")
     game.advance_level()
     rendered = record_text(monkeypatch, game.menu)
     game.menu.draw()
     assert game.menu.page == "complete"
     assert "You escaped" in rendered
     assert len(game.menu.buttons()) == 3
-    game.start_level(9, "single")
+    game.start_level(game.available_levels[-1], "single")
     game.advance_level()
     rendered.clear()
     game.menu.draw()
