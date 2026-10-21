@@ -86,12 +86,13 @@ def click(game, action):
     game.run_frame()
 
 
-def test_start_requires_setup_and_full_run_advances(game):
+def test_play_menu_starts_normal_levels_and_full_run_advances(game):
     assert game.menu.page == "main"
 
     click(game, "play")
-    click(game, "normal_levels")
 
+    assert game.menu.page == "play"
+    click(game, "normal_levels")
     assert game.menu.page == "setup"
 
     click(game, "start")
@@ -383,7 +384,7 @@ def test_level_grid_scrolls_every_level_into_view_above_back(game):
     assert seen == {f"level:{level}" for level in game.available_levels}
 
 
-@pytest.mark.parametrize("level", sorted(int(path.stem) for path in pathlib.Path("levels").glob("*.json")))
+@pytest.mark.parametrize("level", sorted(int(path.stem) for path in pathlib.Path("levels").glob("*.json") if path.stem.isdigit()))
 def test_level_selection_loads_and_finishes_only_that_level(
     game,
     level,

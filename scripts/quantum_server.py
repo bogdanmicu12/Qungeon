@@ -17,7 +17,7 @@ MAX_BODY = 350_000
 
 
 def public_files():
-    files = {"index.html", "Qungeon.py", "web/main.py", "web/pyscript.json", "web/styles.css", "web/shell.js"}
+    files = {"index.html", "Qungeon.py", "web/main.py", "web/pyscript.json", "web/styles.css", "web/shell.js", "web/level-check-worker.js"}
     config = json.loads((ROOT / "web/pyscript.json").read_text(encoding="utf-8"))
     for name in config["files"]:
         path = (ROOT / "web" / name).resolve()

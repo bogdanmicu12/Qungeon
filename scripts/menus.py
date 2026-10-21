@@ -22,6 +22,7 @@ MUTED = (154, 158, 177)
 ACCENT = (182, 164, 242)
 MINT = (161, 220, 189)
 RED = (233, 149, 159)
+HEADER_LEFT, HEADER_RIGHT = 40, 760
 
 DEFAULT_SETTINGS = {
     "decoherence": False,
@@ -207,6 +208,8 @@ class MenuUI:
 
         if self.page == "playing":
             self.game.cancel_dragging()
+            if self.game.bloch is not None:
+                self.game.bloch.mouse_captured = False
 
         self.page = page
         if page != "intro":
@@ -240,6 +243,14 @@ class MenuUI:
                 ),
                 ("main", "Return to menu"),
             ]
+
+            # Tutorial levels skip circuit capture, so there is nothing to run.
+            if self.game.run_mode == "tutorial":
+                actions = [
+                    action
+                    for action in actions
+                    if action[0] != "quantum_run"
+                ]
 
             return [
                 (
@@ -301,6 +312,7 @@ class MenuUI:
                     "Custom level code",
                     "Paste a QGL share code copied from the level editor.",
                 ),
+                ("tutorial", pygame.Rect(60, 393, 680, 58), "Tutorial", "Learn movement, pickups, and quantum gates."),
                 (
                     "back",
                     pygame.Rect(60, 491, 200, 44),
@@ -598,6 +610,7 @@ class MenuUI:
         gameplay_actions = {
             "start",
             "load_seed",
+            "tutorial",
         }
 
         if not released and (action in gameplay_actions or action.startswith("level:")):
@@ -666,12 +679,17 @@ class MenuUI:
             self.open("playing")
         elif action == "intro_resume":
             self.opening.suspended = False
+        elif action == "tutorial":
+            self.game.start_tutorial()
+
         elif action == "retry":
             self.game.restart_level()
 
         elif action == "retry_run":
             if self.game.run_mode == "full":
                 self.open("setup")
+            elif self.game.run_mode == "tutorial":
+                self.game.start_tutorial()
             else:
                 self.game.restart_level()
 
@@ -1530,8 +1548,8 @@ class MenuUI:
         pygame.draw.line(
             screen,
             EDGE,
-            (40, 76),
-            (760, 76),
+            (HEADER_LEFT, 76),
+            (HEADER_RIGHT, 76),
         )
 
         pygame.draw.rect(
@@ -1610,9 +1628,10 @@ class MenuUI:
                      "failed": "Run failed" if full_run else "Level failed",
                      "complete": "You escaped" if escaped else "Run complete" if full_run and not self.game.has_next_level() else "Level complete"}[self.page]
             self.text(title, 400, 170, 46, INK, True)
-            self.text(f"LEVEL {self.game.current_level:02}   /   {'FULL RUN' if self.game.run_mode == 'full' else 'SINGLE LEVEL'}", 400, 220, 19, MUTED, True)
+            run_label = "TUTORIAL RUN" if self.game.run_mode == "tutorial" else "FULL RUN" if full_run else "SINGLE LEVEL"
+            self.text(f"{self.level_label()}   /   {run_label}", 400, 220, 19, MUTED, True)
             if self.page != "paused":
-                message = "The level can no longer be completed." if self.page == "failed" else "All levels completed." if full_run and not self.game.has_next_level() else "Your solved circuit is ready to explore."
+                message = "The level can no longer be completed." if self.page == "failed" else "All levels completed." if full_run and not self.game.has_next_level() else "Tutorial completed." if self.game.run_mode == "tutorial" else "Your solved circuit is ready to explore."
                 room = story.ROOMS.get(self.game.current_level)
                 if self.page == "complete":
                     message = story.ENDING if escaped else room.completion_line if room else message
@@ -1799,21 +1818,114 @@ class MenuUI:
         if self.page == "loading":
             self.loading_drawn = True
 
+    def level_label(self):
+        """Tutorial levels use negative sentinel ids (-1, -2, ...) so they
+        never collide with the numbered .json levels in ./levels; display
+        those as "TUTORIAL n" instead of "LEVEL nn"."""
+        level = self.game.current_level
+        if level < 0:
+            return f"TUTORIAL {-level}"
+        return f"LEVEL {level:02}"
+
     def draw_hud(self):
         self.draw_header()
         room = story.ROOMS.get(self.game.current_level)
+        self.text("B  Bloch sphere", 526, 39, 18, ACCENT if self.game.bloch and self.game.bloch.enabled else MUTED)
         if self.page == "playing" and pygame.time.get_ticks() < self.game.quantum_notice_until:
             self.text(self.game.quantum_notice, 40, 79, 18, self.game.quantum_notice_color)
         elif self.page == "playing" and room:
             self.text(room.learning_line, 400, 79, 19, MUTED, True)
         if self.game.current_share_code is not None:
-            self.text("CUSTOM LEVEL", 362, 39, 22, INK)
+            self.text("CUSTOM LEVEL", 300, 39, 22, INK)
         elif room:
-            self.text(f"{self.game.current_level:02}  /  {room.title}", 432, 39, 22, INK, True)
+            self.text(f"{self.game.current_level:02}  /  {room.title}", 372, 39, 22, INK, True)
         else:
-            self.text(f"LEVEL {self.game.current_level:02}", 362, 39, 22, INK)
-        pygame.draw.rect(self.game.screen, PANEL, (652, 29, 108, 35))
-        pygame.draw.rect(self.game.screen, EDGE, (652, 29, 108, 35), 1)
-        self.text("ESC  Pause", 665, 39, 20, MUTED)
-        self.text("WASD  Move", 40, 579, 18, MUTED)
-        self.text("R  Restart", 692, 579, 18, MUTED)
+            self.text(
+                self.level_label(),
+                300,
+                39,
+                22,
+                INK,
+            )
+
+        pygame.draw.rect(
+            self.game.screen,
+            PANEL,
+            (652, 29, 108, 35),
+        )
+
+        pygame.draw.rect(
+            self.game.screen,
+            EDGE,
+            (652, 29, 108, 35),
+            1,
+        )
+
+        self.text(
+            "ESC  Pause",
+            665,
+            39,
+            20,
+            MUTED,
+        )
+
+        self.text(
+            "WASD  Move",
+            40,
+            579,
+            18,
+            MUTED,
+        )
+
+        self.text(
+            "Drag gates onto nearby pillars",
+            400,
+            579,
+            18,
+            MUTED,
+            True,
+        )
+
+        self.text(
+            "R  Restart",
+            692,
+            579,
+            18,
+            MUTED,
+        )
+
+        tutorial = getattr(self.game, "tutorial", None)
+        if tutorial and tutorial.active:
+            self.draw_tutorial_popup(tutorial.current)
+
+    def wrap_text(self, text, max_width, size):
+        """Greedy word-wrap; returns lines that each fit within max_width px."""
+        lines, line = [], ""
+        for word in text.split(" "):
+            candidate = f"{line} {word}".strip()
+            if font(size).size(candidate)[0] > max_width and line:
+                lines.append(line)
+                line = word
+            else:
+                line = candidate
+        if line:
+            lines.append(line)
+        return lines
+
+    def draw_tutorial_popup(self, text):
+        """Draw the dialogue box for the current tutorial step.
+
+        Sits between the board and the hotbar so it never covers the gates the
+        player is being told to use. Input is handled by
+        Game.handle_tutorial_event, not here.
+        """
+        screen = self.game.screen
+        box = pygame.Rect(60, 336, 680, 108)
+        pygame.draw.rect(screen, (8, 10, 17), box.move(0, 4))
+        pygame.draw.rect(screen, PANEL, box)
+        pygame.draw.rect(screen, ACCENT, box, 2)
+        pygame.draw.rect(screen, ACCENT, (box.x, box.y, box.width, 22))
+        self.text("TUTORIAL", box.x + 10, box.y + 3, 15, BG)
+        for i, line in enumerate(self.wrap_text(text, box.width - 24, 18)):
+            self.text(line, box.x + 12, box.y + 30 + i * 18, 18, INK)
+        self.text("ENTER / Click to continue", box.x + 12, box.bottom - 20, 16, MUTED)

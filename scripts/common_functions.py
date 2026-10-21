@@ -6,11 +6,15 @@ from functools import lru_cache
 def font(size):
     return pygame.font.Font("./assets/DejaVuSans.ttf", round(size * 0.7))
 
-def add_text(sprite, text, x=0, y=0):
+def add_text(sprite, text, x=0, y=0, centered=False, size=16):
     """Adds text to the sprite's image at the specified position."""
-    text_surface = font(24).render(text, True, (255, 255, 255))
+    text_surface = font(size).render(str(text), True, (255, 255, 255))
     sprite.image = sprite.image.convert_alpha()
-    sprite.image.blit(text_surface, (x, y))
+
+    if centered:
+        sprite.image.blit(text_surface, text_surface.get_rect(center=(x, y)))
+    else:
+        sprite.image.blit(text_surface, (x, y))
 
 def update_mouse_drag(elements):
     """Updates the position of elements being dragged by the mouse."""

@@ -316,6 +316,9 @@ def validate_level(level_data, filename):
                     f"at {entry['position']}"
                 )
 
+    from scripts.tutorial import validate_tutorial  # local import avoids a circular import
+    validate_tutorial(level_data.get("tutorial"), filename)
+
 
 def read_level(filename):
     """Read, parse and validate a level file, returning its data.

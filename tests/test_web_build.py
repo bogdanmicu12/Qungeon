@@ -98,6 +98,12 @@ def test_browser_uses_original_game_files_without_copies():
     assert not (WEB / "scripts").exists()
 
 
+def test_browser_includes_the_shared_bloch_inspector():
+    config = json.loads((WEB / "pyscript.json").read_text(encoding="utf-8"))
+    for module in ("bloch_state", "bloch_inspector"):
+        assert config["files"][f"../scripts/{module}.py"] == f"./scripts/{module}.py"
+
+
 def test_bundled_unitary_alpha_matches_pinned_checkout_when_available():
     source = ROOT / "src" / "unitary" / "unitary" / "alpha"
     if not source.is_dir():
@@ -150,3 +156,23 @@ def test_browser_ships_everything_the_game_loads():
     }
 
     assert sorted(needed - shipped) == []
+
+
+def test_worker_can_validate_levels_using_only_its_downloaded_scripts(tmp_path):
+    """A new validator dependency must ship in the worker's separate filesystem."""
+    import re
+    import shutil
+    worker = (WEB / "level-check-worker.js").read_text()
+    modules = re.findall(r'"([a-z_]+)"', worker.split('const scripts = new Set([', 1)[1].split(']);', 1)[0])
+    folder = tmp_path / "scripts"
+    folder.mkdir()
+    for name in modules:
+        shutil.copy(ROOT / "scripts" / f"{name}.py", folder / f"{name}.py")
+    result = subprocess.run([sys.executable, "-c", """
+import json
+import sys
+from scripts.level_validation import validate_level
+validate_level(json.loads(sys.stdin.read()), "worker check")
+"""], cwd=tmp_path, input=(ROOT / "levels/tutorial_1.json").read_text(),
+                           capture_output=True, text=True, timeout=30)
+    assert result.returncode == 0, result.stderr

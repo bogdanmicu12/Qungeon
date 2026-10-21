@@ -70,7 +70,7 @@ def network_fixture(info=None):
     return backend, provider
 
 
-@pytest.mark.parametrize("level", sorted(int(path.stem) for path in Path("levels").glob("*.json")))
+@pytest.mark.parametrize("level", sorted(int(path.stem) for path in Path("levels").glob("*.json") if path.stem.isdigit()))
 def test_every_level_exports_same_state_in_pillar_order(game, sdk, level):
     from qiskit.quantum_info import Statevector
     game.start_level(level)
@@ -382,7 +382,7 @@ def test_pillar_map_renders_saved_level_and_selects_matching_result_bit(game):
     assert view.selected == 2
 
 
-@pytest.mark.parametrize("level", sorted(int(path.stem) for path in Path("levels").glob("*.json")))
+@pytest.mark.parametrize("level", sorted(int(path.stem) for path in Path("levels").glob("*.json") if path.stem.isdigit()))
 def test_every_shipped_map_fits_and_keeps_all_pillars_visible(game, level):
     from scripts.pillar_map import PillarMap
     game.start_level(level)

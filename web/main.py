@@ -75,7 +75,7 @@ async def download_gameplay() -> None:
     import micropip
 
     try:
-        await micropip.install("cirq-core==1.7.0")
+        await micropip.install(["numpy", "cirq-core==1.7.0"])
     except Exception as error:
         # The menu keeps running, so say why levels never become playable.
         show_error(error, "load levels")

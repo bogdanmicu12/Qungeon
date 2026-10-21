@@ -16,7 +16,7 @@ from scripts.game_objects import QuantumObject, gates
 from scripts.level_share import encode_level
 from scripts.opening import ANIMATION_MS
 
-LEVELS = sorted(int(path.stem) for path in Path("levels").glob("*.json"))
+LEVELS = sorted(int(path.stem) for path in Path("levels").glob("*.json") if path.stem.isdigit())
 
 
 @pytest.fixture

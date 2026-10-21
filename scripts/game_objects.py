@@ -27,7 +27,7 @@ wall_tile_image = pygame.image.load('./assets/wall.png')
 x_gate_image = pygame.image.load('./assets/x-gate.png')
 
 SCALE_FACTOR = 4
-BLOCK_SIZE = 16 * SCALE_FACTOR
+BLOCK_SIZE = int(16 * SCALE_FACTOR)
 PEEK_COUNT = 1000
 
 def exact_probability_zero(world, obj):
@@ -111,11 +111,19 @@ class LootableObject(BaseObject):
         self.rect.x = x * BLOCK_SIZE
         self.rect.y = y * BLOCK_SIZE
         self.item = item
-        add_text(self, item, box_rect.width, box_rect.height)
+        add_text(
+            self,
+            item,
+            self.image.get_width() // 2,
+            self.image.get_height() // 2,
+            centered=True,
+            size=14,
+        )
 
     def function(self, game, x, y):
         """Adds the item to the player's hotbar and removes the object."""
         game.hotbar.add_item(self.item, 1)
+        game.tutorial.on_pickup(self.item)
         self.kill()
         del game.objects[str(x) + "," + str(y)]
         return True
@@ -238,6 +246,8 @@ class QuantumObject(BaseObject, alpha.QuantumObject):
             self.phase_Z = False
 
         if effect:
+            inspector = getattr(game, "bloch", None)
+            previous = inspector.before_gate() if inspector is not None else {}
             if isinstance(effect, list):
                 reference_obj = game.objects[
                     str(effect[1][0]) + ',' + str(effect[1][1])
@@ -252,6 +262,17 @@ class QuantumObject(BaseObject, alpha.QuantumObject):
                 reference_obj.apply_effect(game)
             else:
                 effect(self)
+
+            if inspector is not None:
+                operation = effect[0] if isinstance(effect, list) else effect
+                label = next(
+                    (name for name, candidate in gates.items()
+                     if candidate is not None and candidate == operation),
+                    "gate",
+                )
+                if isinstance(effect, list):
+                    label = {"X": "CNOT", "H": "CHAD"}.get(label, "controlled gate")
+                inspector.after_gate(previous, label)
 
             ordered_dict = OrderedDict(
                 sorted(

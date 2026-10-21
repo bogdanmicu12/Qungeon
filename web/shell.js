@@ -20,7 +20,7 @@ resizeCanvas();
 
 canvas.addEventListener("pointerdown", () => canvas.focus());
 canvas.addEventListener("keydown", (event) => {
-  if (["Tab", " ", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "PageUp", "PageDown", "Home", "End"].includes(event.key)) {
+  if (["Tab", "F1", " ", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "PageUp", "PageDown", "Home", "End"].includes(event.key)) {
     event.preventDefault();
   }
 });
@@ -55,7 +55,7 @@ const levelPending = new Set();
 function ensureLevelWorker() {
   if (!levelWorker) {
     levelPhase = "preparing";
-    levelWorker = new Worker(new URL("./web/level-check-worker.js?v=16", document.baseURI), { type: "module" });
+    levelWorker = new Worker(new URL("./web/level-check-worker.js?v=17", document.baseURI), { type: "module" });
     levelWorker.onmessage = ({ data: { id, result, phase } }) => {
       if (phase) levelPhase = phase;
       if (levelPending.delete(id)) levelResults.set(id, result);

@@ -62,21 +62,12 @@ GATES = (
 #
 # The actual game grid remains 11 x 10.
 #
-# The level editor hides:
-#   - first column: x = 0
-#   - first row:    y = 0
-#   - last row:     y = 9
-#
-# The remaining cells keep their original coordinates.
+# Every cell is visible and editable, retaining its original level coordinates.
 # -------------------------------------------------------------
 
-CELL = 38
-GRID_X, GRID_Y = 28, 92
+CELL = 34
+GRID_X, GRID_Y = 36, 100
 COLS, ROWS = 11, 10
-
-HIDDEN_FIRST_COL = 0
-HIDDEN_FIRST_ROW = 0
-HIDDEN_LAST_ROW = ROWS - 1
 
 
 class LevelEditor:
@@ -195,22 +186,7 @@ class LevelEditor:
             mouse[1] - GRID_Y
         ) // CELL
 
-        # ---------------------------------------------------------
-        # The first column, first row, and last row are hidden
-        # and cannot be selected or edited.
-        #
-        # IMPORTANT:
-        # Coordinates are NOT shifted.
-        # A visible cell is still its original level coordinate.
-        # ---------------------------------------------------------
-
-        if (
-            0 <= x < COLS
-            and 0 <= y < ROWS
-            and x != HIDDEN_FIRST_COL
-            and y != HIDDEN_FIRST_ROW
-            and y != HIDDEN_LAST_ROW
-        ):
+        if 0 <= x < COLS and 0 <= y < ROWS:
             return (x, y)
 
         return None
@@ -886,17 +862,6 @@ class LevelEditor:
             )
 
     def paint(self, pos):
-        # Extra safety: even if paint() is called directly,
-        # never allow editing of the hidden cells.
-        x, y = pos
-
-        if (
-            x == HIDDEN_FIRST_COL
-            or y == HIDDEN_FIRST_ROW
-            or y == HIDDEN_LAST_ROW
-        ):
-            return
-
         self.mark_modified()
 
         if self.tool == "PILLAR":
@@ -1544,22 +1509,10 @@ class LevelEditor:
         # ---------------------------------------------------------
         # Grid rendering.
         #
-        # The first column, first row, and last row are skipped.
-        #
-        # IMPORTANT:
-        # We do NOT shift the coordinates.
-        # A visible cell at (1, 1) is still (1, 1).
+        # All 11 x 10 level coordinates are visible and editable.
         # ---------------------------------------------------------
         for y in range(ROWS):
             for x in range(COLS):
-
-                if (
-                    x == HIDDEN_FIRST_COL
-                    or y == HIDDEN_FIRST_ROW
-                    or y == HIDDEN_LAST_ROW
-                ):
-                    continue
-
                 pos = (x, y)
 
                 rect = pygame.Rect(
