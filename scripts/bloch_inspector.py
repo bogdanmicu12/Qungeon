@@ -86,7 +86,7 @@ class BlochInspector:
 
     def visible(self):
         return (self.enabled and self.ready and self.game.menu.page == "playing"
-                and not self.game.gate_help_open)
+                and not self.game.gate_help_open and not self.game.tutorial.active)
 
     def select(self, obj):
         if obj is self.selected:

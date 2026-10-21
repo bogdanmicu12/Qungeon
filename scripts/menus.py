@@ -9,6 +9,8 @@ import pygame
 from scripts.common_functions import font
 from scripts.level_validation import LevelError, parse_pos, read_level
 from scripts.quantum_menu import QuantumMenu
+from scripts import story
+from scripts.opening import Opening
 from scripts.scroll_view import ScrollView
 
 
@@ -80,12 +82,10 @@ class MenuUI:
         self.help_return = "main"
         self.focus = 0
         self.pressed = None
-
-        # Level choices waiting for the quantum/gameplay stack to be ready.
-        self.pending = None
-        self.loading_from = "main"
-        self.loading_drawn = False
-
+        self.pending = None      # level choice waiting on the quantum stack
+        self.opening = None
+        self.loading_from = "main"   # where to go back to if it will not load
+        self.loading_drawn = False   # the screen the import is allowed to block behind
         self.previews = {}
         self.settings_saved = True
 
@@ -138,6 +138,46 @@ class MenuUI:
         )
         self.game.screen.blit(image, rect)
 
+    def paragraph(self, text, x, y, width, size=21, color=MUTED, center=False):
+        """Wrap optional explanations inside existing panels; return their bottom."""
+        current = ""
+        lines = []
+        for word in text.split():
+            candidate = f"{current} {word}".strip()
+            if current and font(size).size(candidate)[0] > width:
+                lines.append(current)
+                current = word
+            else:
+                current = candidate
+        if current:
+            lines.append(current)
+        for line in lines:
+            self.text(line, x + width // 2 if center else x, y, size, color, center)
+            y += font(size).get_linesize() + 3
+        return y
+
+    def draw_help(self):
+        self.text("Reach the exit", 62, 203, 24, ACCENT)
+        self.paragraph(
+            "Each pillar is a qubit. In this dungeon, only a pillar definitely in 0 lets you "
+            "pass. Use gates to open a route to END; gates change states without measuring them.",
+            62, 231, 676)
+        self.text("Move & use gates", 62, 289, 24, ACCENT)
+        self.paragraph(
+            "WASD moves. Select X, H, Z or RotY with 1-4, then move into a pillar; "
+            "or drag a gate onto a nearby pillar. For CNOT / CHAD / SWAP, drag onto one pillar, "
+            "then drag from it to the target. H opens the gate guide. R restarts. ESC pauses.",
+            62, 317, 676, size=20)
+        room = (story.ROOMS.get(self.game.current_level)
+                if self.help_return == "paused" and self.game.player is not None else None)
+        self.text(room.title if room else "The way out", 62, 399, 24, ACCENT)
+        self.paragraph(
+            room.help_note if room else
+            "A ruined floor gives way, dropping you into the dungeon. An arch carved "
+            "into the stone suggests another way out. Follow the markings toward daylight, learning the "
+            "rules of the quantum locks as you go. These locks are fictional; the gates follow quantum rules.",
+            62, 427, 676, size=20)
+
     def make_background(self):
         surface = pygame.Surface((800, 600))
         surface.fill(BG)
@@ -172,19 +212,21 @@ class MenuUI:
                 self.game.bloch.mouse_captured = False
 
         self.page = page
+        if page != "intro":
+            self.opening = None
         self.focus = 0
         self.pressed = None
         self.game.last_tick = pygame.time.get_ticks()
 
     def buttons(self):
         """Return (action, rectangle, label, supporting text) for this page."""
-
-        if self.page in (
-            "quantum",
-            "quantum_history",
-            "quantum_map",
-            "quantum_circuit",
-        ):
+        if self.page == "intro":
+            if self.opening.suspended:
+                return [("intro_resume", pygame.Rect(280, 365, 240, 42), "Resume", "")]
+            action, label = (("intro_continue", "Find a way out") if self.opening.landed
+                             else ("intro_skip", "Skip animation"))
+            return [(action, pygame.Rect(280, 504, 240, 42), label, "")]
+        if self.page in ("quantum", "quantum_history", "quantum_map", "quantum_circuit"):
             return self.quantum.buttons()
 
         if self.page == "complete":
@@ -239,7 +281,7 @@ class MenuUI:
                         ("levels", "Level select", "02"),
                         ("editor", "Level editor", "03"),
                         ("settings", "Settings", "04"),
-                        ("tutorial", "Tutorial", "05"),
+                        ("help", "How to play", "05"),
                     )
                 )
             ] + [
@@ -270,6 +312,7 @@ class MenuUI:
                     "Custom level code",
                     "Paste a QGL share code copied from the level editor.",
                 ),
+                ("tutorial", pygame.Rect(60, 393, 680, 58), "Tutorial", "Learn movement, pickups, and quantum gates."),
                 (
                     "back",
                     pygame.Rect(60, 491, 200, 44),
@@ -474,12 +517,15 @@ class MenuUI:
             for index, (action, label) in enumerate(actions)
         ]
 
-    def update(self):
-        """Consume browser paste and start actions after the loading screen is drawn.
+    def update(self, elapsed=0):
+        """Start the level the player already chose, once the code is here.
 
         Importing/loading the quantum stack may block for several seconds, so
         the selection is held until a loading frame has actually been shown.
         """
+        if self.page == "intro":
+            self.opening.update(elapsed)
+            return
 
         if sys.platform == "emscripten":
             from js import window
@@ -518,12 +564,14 @@ class MenuUI:
         )
 
     def back(self):
-        if self.page in (
-            "quantum",
-            "quantum_history",
-            "quantum_map",
-            "quantum_circuit",
-        ):
+        if self.page == "intro":
+            if self.opening.suspended:
+                self.opening.suspended = False
+            elif self.opening.landed:
+                self.open("playing")
+            else:
+                self.opening.skip()
+        elif self.page in ("quantum", "quantum_history", "quantum_map", "quantum_circuit"):
             self.quantum.back()
 
         elif self.page == "paused":
@@ -561,7 +609,6 @@ class MenuUI:
 
         gameplay_actions = {
             "start",
-            "normal_levels",
             "load_seed",
             "tutorial",
         }
@@ -578,11 +625,7 @@ class MenuUI:
             self.open("play")
 
         elif action == "normal_levels":
-            if self.game.available_levels:
-                self.game.start_level(
-                    self.game.available_levels[0],
-                    "full",
-                )
+            self.open("setup")
 
         elif action == "custom_seed":
             # Start with a fresh input each time so the previous code never
@@ -626,11 +669,16 @@ class MenuUI:
             self.game.open_editor()
 
         elif action == "start":
-            self.game.start_level(
-                self.game.available_levels[0],
-                "full",
-            )
-
+            self.game.start_level(self.game.available_levels[0], "full")
+            if self.page == "playing" and self.game.current_level == 1:
+                self.opening = Opening(self)
+                self.open("intro")
+        elif action == "intro_skip":
+            self.opening.skip()
+        elif action == "intro_continue":
+            self.open("playing")
+        elif action == "intro_resume":
+            self.opening.suspended = False
         elif action == "tutorial":
             self.game.start_tutorial()
 
@@ -640,6 +688,8 @@ class MenuUI:
         elif action == "retry_run":
             if self.game.run_mode == "full":
                 self.open("setup")
+            elif self.game.run_mode == "tutorial":
+                self.game.start_tutorial()
             else:
                 self.game.restart_level()
 
@@ -1526,13 +1576,13 @@ class MenuUI:
 
     def draw(self):
         screen = self.game.screen
-
-        if self.page in (
-            "quantum",
-            "quantum_history",
-            "quantum_map",
-            "quantum_circuit",
-        ):
+        if self.page == "intro":
+            self.opening.draw()
+            for index, button in enumerate(self.buttons()):
+                self.draw_button(button, index)
+            pygame.display.update()
+            return
+        if self.page in ("quantum", "quantum_history", "quantum_map", "quantum_circuit"):
             self.quantum.draw()
 
             buttons = self.buttons()
@@ -1558,163 +1608,36 @@ class MenuUI:
         )
 
         if overlay:
-            self.game.display_game(
-                update=False,
-                interactive=False,
-            )
-
-            screen.blit(
-                self.veil,
-                (0, 0),
-            )
-
-            panel = (
-                pygame.Rect(
-                    140,
-                    87,
-                    520,
-                    427,
-                )
-                if self.page == "complete"
-                else pygame.Rect(
-                    204,
-                    87,
-                    392,
-                    427,
-                )
-            )
-
-            pygame.draw.rect(
-                screen,
-                (8, 10, 17),
-                panel.move(0, 7),
-            )
-
-            pygame.draw.rect(
-                screen,
-                PANEL,
-                panel,
-            )
-
-            pygame.draw.rect(
-                screen,
-                EDGE,
-                panel,
-                2,
-            )
-
-            pygame.draw.line(
-                screen,
-                RED
-                if self.page == "failed"
-                else ACCENT,
-                (229, 88),
-                (571, 88),
-                3,
-            )
-
-            color = (
-                RED
-                if self.page == "failed"
-                else ACCENT
-            )
-
-            symbol = (
-                "//"
-                if self.page == "paused"
-                else (
-                    "X"
-                    if self.page == "failed"
-                    else "+"
-                )
-            )
-
-            pygame.draw.rect(
-                screen,
-                color,
-                (381, 115, 38, 38),
-                2,
-            )
-
-            self.text(
-                symbol,
-                400,
-                121,
-                31,
-                color,
-                True,
-            )
-
-            full_run = (
-                self.game.run_mode == "full"
-            )
-
-            title = {
-                "paused": "Paused",
-                "failed": (
-                    "Run failed"
-                    if full_run
-                    else "Level failed"
-                ),
-                "complete": (
-                    "Run complete"
-                    if full_run
-                    and not self.game.has_next_level()
-                    else "Level complete"
-                ),
-            }[self.page]
-
-            self.text(
-                title,
-                400,
-                170,
-                46,
-                INK,
-                True,
-            )
-
-            run_label = (
-                "TUTORIAL RUN"
-                if self.game.run_mode == "tutorial"
-                else "FULL RUN"
-                if full_run
-                else "SINGLE LEVEL"
-            )
-
-            self.text(
-                f"{self.level_label()}   /   {run_label}",
-                400,
-                220,
-                19,
-                MUTED,
-                True,
-            )
-
+            self.game.display_game(update=False, interactive=False)
+            screen.blit(self.veil, (0, 0))
+            panel = pygame.Rect(140, 87, 520, 427) if self.page == "complete" else pygame.Rect(204, 87, 392, 427)
+            pygame.draw.rect(screen, (8, 10, 17), panel.move(0, 7))
+            pygame.draw.rect(screen, PANEL, panel)
+            pygame.draw.rect(screen, EDGE, panel, 2)
+            pygame.draw.line(screen, RED if self.page == "failed" else ACCENT, (229, 88), (571, 88), 3)
+            color = RED if self.page == "failed" else ACCENT
+            symbol = "//" if self.page == "paused" else ("X" if self.page == "failed" else "+")
+            escaped = self.page == "complete" and story.is_escape(self.game)
+            if escaped:
+                story.draw_ending(screen, self.images["character"])
+            else:
+                pygame.draw.rect(screen, color, (381, 115, 38, 38), 2)
+                self.text(symbol, 400, 121, 31, color, True)
+            full_run = self.game.run_mode == "full"
+            title = {"paused": "Paused",
+                     "failed": "Run failed" if full_run else "Level failed",
+                     "complete": "You escaped" if escaped else "Run complete" if full_run and not self.game.has_next_level() else "Level complete"}[self.page]
+            self.text(title, 400, 170, 46, INK, True)
+            run_label = "TUTORIAL RUN" if self.game.run_mode == "tutorial" else "FULL RUN" if full_run else "SINGLE LEVEL"
+            self.text(f"{self.level_label()}   /   {run_label}", 400, 220, 19, MUTED, True)
             if self.page != "paused":
-                message = (
-                    "The level can no longer be completed."
-                    if self.page == "failed"
-                    else (
-                        "Tutorial completed."
-                        if self.game.run_mode == "tutorial"
-                        else (
-                            "All levels completed."
-                            if full_run
-                            and not self.game.has_next_level()
-                            else "Your solved circuit is ready to explore."
-                        )
-                    )
-                )
-
-                self.text(
-                    message,
-                    400,
-                    268,
-                    23,
-                    MUTED,
-                    True,
-                )
-
+                message = "The level can no longer be completed." if self.page == "failed" else "All levels completed." if full_run and not self.game.has_next_level() else "Tutorial completed." if self.game.run_mode == "tutorial" else "Your solved circuit is ready to explore."
+                room = story.ROOMS.get(self.game.current_level)
+                if self.page == "complete":
+                    message = story.ENDING if escaped else room.completion_line if room else message
+                    self.paragraph(message, 170, 263, 460, size=23, center=True)
+                else:
+                    self.text(message, 400, 268, 23, MUTED, True)
         else:
             screen.blit(
                 self.background,
@@ -1741,22 +1664,14 @@ class MenuUI:
 
             if self.page == "main":
                 self.wordmark()
-
-                self.text(
-                    "A quantum puzzle game.",
-                    62,
-                    255,
-                    26,
-                    MUTED,
-                )
-
+                self.text("Quantum locks. A way to daylight.", 62, 255, 24, MUTED)
                 self.draw_scene()
 
             else:
                 heading, subheading = {
                     "setup": (
                         "Prepare your run",
-                        f"Play all {len(self.game.available_levels)} levels in order.",
+                        f"{len(self.game.available_levels)} chambers. Follow the old markings to daylight.",
                     ),
                     "play": (
                         "Play",
@@ -1776,7 +1691,7 @@ class MenuUI:
                     ),
                     "help": (
                         "How to play",
-                        "",
+                        "Find a way out, one quantum lock at a time.",
                     ),
                     "loading": (
                         "Entering the dungeon",
@@ -1802,6 +1717,9 @@ class MenuUI:
                     MUTED,
                 )
 
+                if self.page == "help":
+                    self.draw_help()
+
                 if self.page == "custom_seed":
                     field = pygame.Rect(
                         60,
@@ -1825,6 +1743,8 @@ class MenuUI:
                         2,
                     )
 
+                    clip = screen.get_clip()
+                    screen.set_clip(clip.clip(pygame.Rect(80, 265, 620, 40)))
                     self.text(
                         self.seed_text
                         or "QGL-paste-your-code-here",
@@ -1835,6 +1755,7 @@ class MenuUI:
                         if self.seed_text
                         else MUTED,
                     )
+                    screen.set_clip(clip)
 
                     # One-click clear control for quickly entering another code.
                     clear_color = ACCENT if self.seed_text else MUTED
@@ -1908,38 +1829,20 @@ class MenuUI:
 
     def draw_hud(self):
         self.draw_header()
-
-        self.text(
-            "B  Bloch sphere",
-            526,
-            39,
-            18,
-            ACCENT if self.game.bloch and self.game.bloch.enabled else MUTED,
-        )
-
-        if pygame.time.get_ticks() < self.game.quantum_notice_until:
-            self.text(
-                self.game.quantum_notice,
-                40,
-                89,
-                18,
-                self.game.quantum_notice_color,
-            )
-
+        room = story.ROOMS.get(self.game.current_level)
+        self.text("B  Bloch sphere", 526, 39, 18, ACCENT if self.game.bloch and self.game.bloch.enabled else MUTED)
+        if self.page == "playing" and pygame.time.get_ticks() < self.game.quantum_notice_until:
+            self.text(self.game.quantum_notice, 40, 79, 18, self.game.quantum_notice_color)
+        elif self.page == "playing" and room:
+            self.text(room.learning_line, 400, 79, 19, MUTED, True)
         if self.game.current_share_code is not None:
-            # Keep the HUD clean: the long share code belongs in the menu,
-            # not in the top-right gameplay header.
-            self.text(
-                "CUSTOM LEVEL",
-                362,
-                39,
-                22,
-                INK,
-            )
+            self.text("CUSTOM LEVEL", 300, 39, 22, INK)
+        elif room:
+            self.text(f"{self.game.current_level:02}  /  {room.title}", 372, 39, 22, INK, True)
         else:
             self.text(
                 self.level_label(),
-                362,
+                300,
                 39,
                 22,
                 INK,
@@ -2017,12 +1920,12 @@ class MenuUI:
         Game.handle_tutorial_event, not here.
         """
         screen = self.game.screen
-        box = pygame.Rect(60, 400, 680, 112)
+        box = pygame.Rect(60, 336, 680, 108)
         pygame.draw.rect(screen, (8, 10, 17), box.move(0, 4))
         pygame.draw.rect(screen, PANEL, box)
         pygame.draw.rect(screen, ACCENT, box, 2)
         pygame.draw.rect(screen, ACCENT, (box.x, box.y, box.width, 22))
         self.text("TUTORIAL", box.x + 10, box.y + 3, 15, BG)
-        for i, line in enumerate(self.wrap_text(text, box.width - 24, 19)):
-            self.text(line, box.x + 12, box.y + 30 + i * 22, 19, INK)
+        for i, line in enumerate(self.wrap_text(text, box.width - 24, 18)):
+            self.text(line, box.x + 12, box.y + 30 + i * 18, 18, INK)
         self.text("ENTER / Click to continue", box.x + 12, box.bottom - 20, 16, MUTED)

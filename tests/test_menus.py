@@ -92,15 +92,14 @@ def test_play_menu_starts_normal_levels_and_full_run_advances(game):
     click(game, "play")
 
     assert game.menu.page == "play"
-
     click(game, "normal_levels")
+    assert game.menu.page == "setup"
 
-    assert (
-        game.menu.page,
-        game.current_level,
-        game.run_mode,
-    ) == ("playing", 1, "full")
-
+    click(game, "start")
+    assert game.menu.page == "intro"
+    click(game, "intro_skip")
+    click(game, "intro_continue")
+    assert (game.menu.page, game.current_level, game.run_mode) == ("playing", 1, "full")
     game.advance_level()
 
     assert (
@@ -135,7 +134,8 @@ def test_full_run_settings_reveal_auto_queue_and_save_both_preferences(game):
         dict(settings)
     )
 
-    click(game, "settings")
+    click(game, "play")
+    click(game, "normal_levels")
 
     assert "toggle:auto_quantum_runs" not in [
         b[0] for b in game.menu.buttons()
@@ -279,7 +279,7 @@ def test_auto_queue_captures_each_level_before_advancing_and_processes_in_backgr
 
     assert requests[0][1] == "enqueue"
     assert first.circuit["level"] == 1
-    assert first.circuit["labels"] == ["5,4", "4,5"]
+    assert first.circuit["labels"] == ["5,4"]
 
     assert game.current_level == 2
     assert game.quantum_run is None
@@ -384,12 +384,15 @@ def test_level_grid_scrolls_every_level_into_view_above_back(game):
     assert seen == {f"level:{level}" for level in game.available_levels}
 
 
-@pytest.mark.parametrize("level", range(1, 9))
+@pytest.mark.parametrize("level", sorted(int(path.stem) for path in pathlib.Path("levels").glob("*.json") if path.stem.isdigit()))
 def test_level_selection_loads_and_finishes_only_that_level(
     game,
     level,
 ):
     click(game, "levels")
+    # Focus navigation scrolls the third row into view before a mouse click.
+    for _ in range(game.available_levels.index(level)):
+        key(game, pygame.K_DOWN)
     click(game, f"level:{level}")
 
     assert (
@@ -840,16 +843,19 @@ def test_the_menu_runs_before_the_quantum_stack_is_ready():
 
     assert (game.menu.page, game.hotbar, game.quantum_grid) == ("main", None, None)
     click(game, "play")
-    assert game.menu.page == "play"
+    click(game, "normal_levels")
+    assert game.menu.page == "setup"
 
-    click(game, "normal_levels")           # held, not dropped, not crashed
-    assert (game.menu.page, game.menu.pending) == ("loading", "normal_levels")
+    click(game, "start")                   # held, not dropped, not crashed
+    assert (game.menu.page, game.menu.pending) == ("loading", "start")
     game.run_frame()                       # loading screen stays up meanwhile
     assert game.menu.page == "loading"
 
     downloaded = True
     game.run_frame()
-    assert (game.menu.page, game.menu.pending) == ("playing", None)
+    assert (game.menu.page, game.menu.pending) == ("intro", None)
+    click(game, "intro_skip")
+    click(game, "intro_continue")
     assert (game.current_level, game.run_mode) == (1, "full")
     pygame.event.clear()
 

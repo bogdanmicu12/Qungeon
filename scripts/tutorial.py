@@ -15,7 +15,7 @@ Step shape:
     {"trigger": "on_win", "text": "..."}
 """
 
-from scripts.level_validation import parse_pos, LevelError
+from scripts.level_validation import parse_pos, LevelError, VALID_GATES
 
 VALID_TRIGGERS = {"on_start", "on_enter", "on_pickup", "on_apply", "on_win"}
 
@@ -32,15 +32,21 @@ def validate_tutorial(tutorial_data, filename):
     if not isinstance(tutorial_data, list):
         raise LevelError(f"{filename}: 'tutorial' must be a list")
     for entry in tutorial_data:
+        if not isinstance(entry, dict):
+            raise LevelError(f"{filename}: tutorial entries must be objects")
         if "trigger" not in entry or "text" not in entry:
             raise LevelError(f"{filename}: tutorial entry missing 'trigger'/'text': {entry}")
         trigger = entry["trigger"]
-        if trigger not in VALID_TRIGGERS:
+        if not isinstance(trigger, str) or trigger not in VALID_TRIGGERS:
             raise LevelError(f"{filename}: unknown tutorial trigger {trigger!r}")
+        if not isinstance(entry["text"], str) or not entry["text"].strip():
+            raise LevelError(f"{filename}: tutorial text must be a non-empty string")
         if trigger in ("on_enter", "on_apply") and "position" not in entry:
             raise LevelError(f"{filename}: {trigger} tutorial step needs 'position'")
         if trigger == "on_pickup" and "item" not in entry:
             raise LevelError(f"{filename}: on_pickup tutorial step needs 'item'")
+        if trigger == "on_pickup" and (not isinstance(entry["item"], str) or entry["item"] not in VALID_GATES):
+            raise LevelError(f"{filename}: tutorial pickup must name a known gate")
         if "position" in entry:
             parse_pos(entry["position"])
 

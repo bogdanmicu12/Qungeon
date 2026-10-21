@@ -212,7 +212,7 @@ def test_inspector_disabled_has_no_simulation_cost(game, monkeypatch):
 
 
 @pytest.mark.parametrize("help_open", [False, True])
-@pytest.mark.parametrize("level", sorted(int(path.stem) for path in Path("levels").glob("*.json")))
+@pytest.mark.parametrize("level", sorted(int(path.stem) for path in Path("levels").glob("*.json") if path.stem.isdigit()))
 def test_panel_and_text_fit_canvas_without_covering_selected_pillar(game, monkeypatch, help_open, level):
     from scripts.common_functions import font
     game.start_level(level)
@@ -248,6 +248,7 @@ def test_empty_level_and_unsupported_state_do_not_break_game(game):
 
 def test_initial_edges_align_with_header_divider(game):
     from scripts.menus import HEADER_LEFT, HEADER_RIGHT
+    game.objects["5,4"].rect.centerx = 300
     key(game, pygame.K_b)
     assert game.bloch.rect.right == HEADER_RIGHT
     right_pillar = game.objects["6,4"]
@@ -270,7 +271,7 @@ def test_drag_preserves_state_and_placement_across_selection_and_reopening(game,
     selected = game.bloch.selected
     monkeypatch.setattr(game, "handle_object_dragging", lambda *args: pytest.fail("Panel press leaked"))
     monkeypatch.setattr(game.hotbar, "handle_mouse_up", lambda *args: pytest.fail("Panel release leaked"))
-    destination = (position[0]-100, position[1]+60)
+    destination = (388 + 25, 170 + 18)
     event(game, pygame.MOUSEMOTION, pos=destination, buttons=(1, 0, 0))
     game.bloch.update_hover(game.objects["6,4"].rect.center)
     assert game.bloch.selected is selected
@@ -444,7 +445,8 @@ def test_gate_selector_and_footer_remain_clear_with_the_inspector(game, monkeypa
 
 def test_gate_drag_keeps_main_hotbar_working_above_the_inspector(game):
     slot = game.hotbar.slots["H"]
-    position = slot.rect.center
+    game.display_game()
+    position = game.hotbar.selection_rects["H"].center
     event(game, pygame.MOUSEBUTTONDOWN, button=1, pos=position)
     assert slot.dragging
     event(game, pygame.MOUSEBUTTONUP, button=1, pos=(0, 0))
@@ -453,7 +455,7 @@ def test_gate_drag_keeps_main_hotbar_working_above_the_inspector(game):
     game.player.update_position(4, 4)
     pillar = game.objects["5,4"]
     game.bloch.rect.topleft = (180, 100)
-    event(game, pygame.MOUSEBUTTONDOWN, button=1, pos=slot.rect.center)
+    event(game, pygame.MOUSEBUTTONDOWN, button=1, pos=game.hotbar.selection_rects["H"].center)
     event(game, pygame.MOUSEBUTTONUP, button=1, pos=pillar.rect.center)
     assert "H" not in game.hotbar.slots
     assert game.bloch.last_gate == "H"

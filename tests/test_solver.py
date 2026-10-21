@@ -18,6 +18,7 @@ Run with the project environment:
 
 import json
 import os
+from pathlib import Path
 from types import SimpleNamespace
 
 os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
@@ -33,7 +34,9 @@ from scripts.game_objects import QuantumObject, control_gates, gates
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 FIXTURES = os.path.join(HERE, "fixtures")
-SHIPPED_LEVELS = range(1, 9)
+SHIPPED_LEVELS = sorted(int(path.stem) for path in
+                       Path(HERE, "..", "levels").glob("*.json")
+                       if path.stem.isdigit())
 
 DIRECTIONS = {
     (1, 0): pygame.K_d,
@@ -352,7 +355,7 @@ def test_swap_plan_actually_wins_in_the_game(game):
     assert walk_to_end(game)
 
 
-def test_level_1_swap_route_is_found_after_x_on_the_corridor_pillar(game):
+def test_level_10_swap_route_is_found_after_x_on_the_corridor_pillar(game):
     """X on (5,4) opens the corridor to the SWAP chest; the level is still winnable.
 
     Take the SWAP at (6,4), walk back to (4,4) and swap the cleared (5,4) with
@@ -360,7 +363,7 @@ def test_level_1_swap_route_is_found_after_x_on_the_corridor_pillar(game):
     tile instead would re-block (5,4) and trap the player in the dead end, so
     the solver must consider where the player stands when spending a gate.
     """
-    load(game, 1)
+    load(game, 10)
 
     game.objects["5,4"].apply_effect(game, gates["X"])
     game.hotbar.remove_by_key("X")
@@ -375,7 +378,7 @@ def test_level_1_swap_route_is_found_after_x_on_the_corridor_pillar(game):
     assert walk_to_end(game)
 
     # The same holds once the chest has been taken and the player stands on it.
-    load(game, 1)
+    load(game, 10)
 
     game.objects["5,4"].apply_effect(game, gates["X"])
     game.hotbar.remove_by_key("X")

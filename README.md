@@ -1,7 +1,26 @@
 # Quantum puzzle game (Qungeon)
 
-Simple puzzle game, reach the end to complete a level. This can be done by using gates in your toolbar ("bag") to manipulating the quantum state of pillars.
-The player has to be next to an object to interact with it!
+Find a way out of a quantum dungeon, one understood rule at a time. Use gates
+to change the states of pillars and open a route to each level's END tile.
+Stand next to a pillar to use a gate on it.
+
+The eleven rooms share a light escape story, **The Way Out**. A full run opens with
+a short pixel animation: a ruined floor crumbles, the character falls into the
+dungeon, and lands in the first room. **Skip animation** (or Escape) goes straight
+to the opening thought; **Find a way out** (Enter, Space, or Escape) begins play.
+The thought stays on screen until you continue. Switching away pauses the opening.
+Level selection, direct links, and restarts go straight to the puzzle.
+
+Old wall markings lead toward daylight. Brief player thoughts above each room
+blend the escape story with clues, leaving gate combinations to discover.
+All puzzles can be played independently, and skipping intermediate completion
+screens keeps the run moving. Only finishing a full run shows the escape ending, after its final level.
+The original introductory level remains level 1; the SWAP puzzles are levels 10 and 12.
+
+For more explanation, press **H** for the gate guide or open **How to play**
+from Pause for the current room's concept. Story content and static decorations
+live in `scripts/story.py`; the opening animation lives in `scripts/opening.py`.
+They do not change puzzle rules, gates, or circuits.
 
 ![The player next to a loot box and a pillar in state |1>](assets/screenshot.png)
 
@@ -210,8 +229,12 @@ graphics dependency or build step is required.
 UI text uses a bundled ASCII subset of DejaVu Sans; its license is in
 `assets/DejaVu-LICENSE.txt`.
 
-- **Start run** opens run settings first, then plays every level in order.
-- **Level select** opens any of the eight available puzzles as a single level.
+- **Play > Normal levels** opens run settings first, then plays every level in order.
+- **Play > Tutorial** opens two guided rooms for movement, pickups, X, and H.
+  Popups pause puzzle input; Enter, Space, or a click continues. Escape opens Pause.
+- **Play > Custom level code** opens an exact editor level from its QGL share code.
+- **Level editor** creates levels with gates, pickups, and custom pillar states.
+- **Level select** opens any of the eleven available puzzles as a single level.
 - **Settings** saves preferences automatically: in `.qungeon-settings.json` on
   desktop, or browser local storage. Preferences are separate between versions.
 - **Decoherence time mode** is a saved preference only, marked coming soon;
@@ -234,7 +257,8 @@ UI text uses a bundled ASCII subset of DejaVu Sans; its license is in
   it; see the level solver section below. It replaces the old Placeholder
   slot, so a saved preference file from before simply falls back to the
   default.
-- **How to play** opens an intentionally blank page with a Back button.
+- **How to play** explains controls and quantum locks; opened from Pause, it also
+  explains the current room's concept. Back returns to Pause without resuming.
 
 Use the mouse, arrow keys / WASD, or Tab / Shift+Tab to navigate menus; Enter
 or Space selects. Escape goes back. During play, Escape (or the Pause button)
@@ -332,8 +356,10 @@ python -m pytest tests -q
 ## Goal
 
 Reach the **END** tile. Pillars (quantum objects) block your path. Each pillar is a qubit,
-and you can only walk through one when it is in a pure |0> state. Apply gates to collapse
-the pillars out of your way.
+and you can only walk through one when it is in a pure |0> state (allowing for
+numerical rounding). Apply gates to transform the states and open your path.
+These gates do not measure or collapse the state. Making |0> passable is a game
+rule; the locks are fictional, while their gate operations follow quantum rules.
 
 ## Controls
 
@@ -341,6 +367,8 @@ the pillars out of your way.
 | --------------- | --------------------------------------------------------- |
 | `W` `A` `S` `D` | Move                                                      |
 | `R`             | Restart level                                             |
+| `1`–`7`         | Select a gate; move into a pillar to apply a single-qubit gate |
+| `H`             | Open or close the gate guide                              |
 | `Esc` / `Q`     | Pause / open the in-game menu                             |
 | Mouse drag      | Drag a gate from the hotbar onto a pillar                 |
 | Mouse hover     | Hover a pillar to draw entanglement lines to its partners |
@@ -356,16 +384,20 @@ applies to the control pillar only — the target can be anywhere on the map.
 - **Single-qubit gates** (`X`, `H`, `Z`, `RotY`) — drag the gate from the hotbar and drop it
   on the pillar. It applies immediately and the gate is consumed.
 - **Controlled gates** (`CNOT`, `CHAD`) — drop the gate on the **control** pillar first, then
-  drag from that control pillar to the **target** pillar. This entangles the two.
+  drag from that control pillar to a different **target** pillar. Controlled gates
+  can create or undo entanglement, depending on the starting state.
 
 | Gate   | Effect                                                                      |
 | ------ | --------------------------------------------------------------------------- |
 | `X`    | Flip: \|0> ↔ \|1>                                                           |
-| `H`    | Superposition: puts the pillar in an even mix of \|0> and \|1>              |
-| `Z`    | Phase flip (no change to the measured value, but it matters once entangled) |
+| `H`    | Creates equal superpositions from 0 or 1; applying H twice restores the original state |
+| `Z`    | Reverses the sign of the 1 component, changing relative phase in a superposition without changing 0/1 probabilities |
 | `RotY` | Partial Y rotation — nudges the state part-way between \|0> and \|1>        |
 | `CNOT` | Controlled flip: flips the target when the control is \|1>                  |
-| `CHAD` | Controlled Hadamard: superposes the target when the control is \|1>         |
+| `CHAD` | Controlled H: applies H to the target when the control is \|1>              |
+| `SWAP` | Exchanges the quantum states of two pillars, including their correlations |
+
+**SWAP** uses the same two-pillar drag: choose a nearby first pillar, then a different pillar anywhere on the map.
 
 ## Reading a pillar
 
@@ -378,3 +410,4 @@ The pillar's tint tells you its state:
 
 Only an _exactly_ pure \|0> is walkable — "almost zero" is not good enough. Entangled pillars
 pulse through their correlated states, and hovering one draws dark blue lines to its partners.
+This animation illustrates correlations; it is not a sequence of measurements.

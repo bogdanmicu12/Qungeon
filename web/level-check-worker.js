@@ -7,11 +7,11 @@ async function initialize() {
   const pyodide = await loadPyodide({ indexURL });
   await pyodide.loadPackage("micropip");
 
-  const response = await fetch(new URL("./pyscript.json?v=16", import.meta.url));
+  const response = await fetch(new URL("./pyscript.json?v=18", import.meta.url));
   if (!response.ok) throw new Error("Could not load level checker configuration");
   const config = await response.json();
   const scripts = new Set([
-    "level_check", "level_solver", "level_validation", "quantum_rules", "flip_phase", "swap",
+    "level_check", "level_solver", "level_validation", "quantum_rules", "flip_phase", "swap", "tutorial",
   ]);
   await Promise.all(Object.entries(config.files).filter(([, target]) => {
     return target.startsWith("./unitary/") || scripts.has(target.split("/").pop().replace(".py", ""));
