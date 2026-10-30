@@ -68,6 +68,13 @@ def test_every_configured_browser_file_exists():
     assert missing == []
 
 
+def test_browser_includes_every_shipped_level_and_story():
+    files = json.loads((WEB / "pyscript.json").read_text(encoding="utf-8"))["files"]
+    for path in (ROOT / "levels").glob("*.json"):
+        assert files[f"../levels/{path.name}"] == f"./levels/{path.name}"
+    assert files["../scripts/story.py"] == "./scripts/story.py"
+
+
 def test_the_quantum_stack_is_not_installed_during_boot():
     """cirq and its dependencies are ~37 MB and nothing on the menu needs them.
 
@@ -149,3 +156,23 @@ def test_browser_ships_everything_the_game_loads():
     }
 
     assert sorted(needed - shipped) == []
+
+
+def test_worker_can_validate_levels_using_only_its_downloaded_scripts(tmp_path):
+    """A new validator dependency must ship in the worker's separate filesystem."""
+    import re
+    import shutil
+    worker = (WEB / "level-check-worker.js").read_text()
+    modules = re.findall(r'"([a-z_]+)"', worker.split('const scripts = new Set([', 1)[1].split(']);', 1)[0])
+    folder = tmp_path / "scripts"
+    folder.mkdir()
+    for name in modules:
+        shutil.copy(ROOT / "scripts" / f"{name}.py", folder / f"{name}.py")
+    result = subprocess.run([sys.executable, "-c", """
+import json
+import sys
+from scripts.level_validation import validate_level
+validate_level(json.loads(sys.stdin.read()), "worker check")
+"""], cwd=tmp_path, input=(ROOT / "levels/tutorial_1.json").read_text(),
+                           capture_output=True, text=True, timeout=30)
+    assert result.returncode == 0, result.stderr

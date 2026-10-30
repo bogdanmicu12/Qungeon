@@ -1,6 +1,5 @@
 import os
 import asyncio
-import json
 import pygame
 import argparse
 
@@ -29,9 +28,7 @@ from pygame.locals import (
 )
 
 from scripts.grouping_system import GroupingSystem
-from scripts.common_functions import (
-    update_mouse_drag,
-)
+from scripts.common_functions import update_mouse_drag
 from scripts.level_validation import (
     read_level,
     validate_level,
@@ -50,6 +47,7 @@ from scripts.menus import (
 # quantum_run keeps cirq/quantum dependencies behind function-level imports,
 # so the menu can appear before the large quantum stack is imported.
 from scripts.quantum_run import QuantumRun, capture_circuit
+from scripts import story
 from scripts.level_editor import LevelEditor
 from scripts.level_share import decode_level
 # tutorial.py only depends on level_validation, not cirq, so it's safe up here too.
@@ -70,6 +68,7 @@ from scripts.tutorial import TutorialController
 alpha = None
 level_solver = None
 Hotbar = None
+BLOCK_SIZE = None
 BlochInspector = None
 LootableObject = Player = QuantumObject = Tile = TileType = None
 pillar_image = None
@@ -78,6 +77,7 @@ gates = None
 
 def load_gameplay():
     """Import the quantum/gameplay stack. Idempotent; the first call does work."""
+    global BLOCK_SIZE
     global alpha, level_solver, Hotbar, BlochInspector
     global LootableObject, Player, QuantumObject
     global Tile, TileType, pillar_image, gates
@@ -89,6 +89,7 @@ def load_gameplay():
     from scripts import level_solver
 
     from scripts.game_objects import (
+        BLOCK_SIZE,
         LootableObject,
         Player,
         QuantumObject,
@@ -109,7 +110,9 @@ FPS = 60
 HOP_FRAMES = 10
 HOP_DELAY_MS = 10
 SCREEN_BG_COLOR = BG
-GAME_TITLE = "Qungeon"
+# Leave room for the story above the board and the gate selector below it.
+PLAY_AREA = pygame.Rect(40, 112, 720, 308)
+GAME_TITLE = 'Qungeon'
 DEFAULT_START_LEVEL = 1
 TUTORIAL_LEVELS = ["tutorial_1", "tutorial_2"]
 
@@ -138,6 +141,8 @@ class Game:
 
         self.tiles = {}
         self.objects = {}
+        self.board_offset = (0, 0)
+        self.board_cell_size = 64
 
         self.grouping_system = GroupingSystem()
         self.quantum_grid = None
@@ -364,8 +369,37 @@ class Game:
             )
 
         self.tutorial.load(level_data)
+        self.center_level()
         self.resources = self.resource_signature()
         self.bloch.finish_level()
+
+    def center_level(self):
+        """Fit the board in the play area without changing logical coordinates."""
+        sprites = list(self.tile_sprites) + list(self.object_sprites) + [self.player]
+        bounds = sprites[0].rect.unionall([sprite.rect for sprite in sprites[1:]])
+        area = pygame.Rect(40, 112, 720, 208) if self.tutorial.steps else PLAY_AREA
+        scale = min(1, area.width / bounds.width, area.height / bounds.height)
+        self.board_cell_size = max(1, int(BLOCK_SIZE * scale))
+        scale = self.board_cell_size / BLOCK_SIZE
+        for sprite in sprites:
+            sprite.render_scale = scale
+            size = tuple(max(1, round(value * scale)) for value in sprite.image.get_size())
+            sprite.image = pygame.transform.scale(sprite.image, size)
+            sprite.rect = pygame.Rect(round(sprite.rect.x * scale), round(sprite.rect.y * scale), *size)
+            if isinstance(sprite, QuantumObject):
+                sprite.colorImage = pygame.Surface(size, pygame.SRCALPHA)
+        bounds = sprites[0].rect.unionall([sprite.rect for sprite in sprites[1:]])
+        offset = (area.centerx - bounds.centerx, area.centery - bounds.centery)
+        for sprite in sprites:
+            sprite.rect.move_ip(offset)
+        self.board_offset = offset
+        self.update_player_position(*self.player.position)
+
+    def update_player_position(self, x, y):
+        """Apply the board transform to every player pose, including mid-hop."""
+        self.player.position = (x, y)
+        self.player.rect.topleft = (round(x * self.board_cell_size) + self.board_offset[0],
+                                    round(y * self.board_cell_size) + self.board_offset[1])
 
     def resource_signature(self):
         """Return everything the player can still spend."""
@@ -386,6 +420,8 @@ class Game:
             self.bloch.reset()
 
         self.tiles.clear()
+        self.board_offset = (0, 0)
+        self.board_cell_size = 64
         self.tile_sprites.empty()
 
         self.objects.clear()
@@ -443,7 +479,7 @@ class Game:
         start = self.hop["start"]
         end = self.hop["end"]
 
-        self.player.update_position(
+        self.update_player_position(
             start[0]
             + (end[0] - start[0]) * progress,
             start[1]
@@ -452,7 +488,7 @@ class Game:
         )
 
         if progress == 1:
-            self.player.update_position(*end)
+            self.update_player_position(*end)
             self.hop = None
             self.tutorial.on_enter(end)
 
@@ -860,15 +896,18 @@ class Game:
         self,
         update=True,
         interactive=True,
+        player_offset=0,
+        show_ui=True,
     ):
-        """Render the current game state."""
+        """Render the board, optional story pose, and gameplay controls."""
         self.screen.fill(
             SCREEN_BG_COLOR
         )
 
-        self.tile_sprites.draw(
-            self.screen
-        )
+        if self.player is not None:
+            self.update_player_position(*self.player.position)
+        self.tile_sprites.draw(self.screen)
+        story.draw_marks(self)
 
         all_sprites = list(
             self.object_sprites
@@ -890,12 +929,10 @@ class Game:
 
         for sprite in all_sprites:
             if not getattr(sprite, "dragging", False):
-                self.screen.blit(
-                    sprite.image,
-                    sprite.rect,
-                )
+                rect = sprite.rect.move(0, player_offset) if sprite == self.player else sprite.rect
+                self.screen.blit(sprite.image, rect)
 
-        if interactive and self.hotbar is not None:
+        if show_ui and self.hotbar is not None:
             if hasattr(
                 self.hotbar,
                 "draw_selection_panel",
@@ -909,19 +946,20 @@ class Game:
             if self.settings["entanglement_guides"]:
                 self.entanglement_visuals()
 
-        self.menu.draw_hud()
+        if show_ui:
+            self.menu.draw_hud()
 
-        if interactive and self.bloch is not None:
+        if show_ui and interactive and self.bloch is not None:
             self.bloch.draw()
 
         # Draw each dragged object once, above the translucent inspector.
-        if self.hotbar is not None:
+        if show_ui and self.hotbar is not None:
             for sprite in (*self.objects.values(), *self.hotbar.slots.values()):
                 if sprite.dragging:
                     self.screen.blit(sprite.image, sprite.rect)
 
         # Main branch functionality.
-        if self.gate_help_open and self.hotbar is not None:
+        if show_ui and self.gate_help_open and self.hotbar is not None:
             if hasattr(
                 self.hotbar,
                 "draw_help_window",
@@ -1057,27 +1095,14 @@ class Game:
     def entanglement_visuals(self):
         """Draw visual lines between entangled objects."""
         mouse_pos = pygame.mouse.get_pos()
-
-        for name, obj in self.objects.items():
-            if isinstance(
-                obj,
-                QuantumObject,
-            ):
-                if obj.rect.collidepoint(
-                    mouse_pos
-                ):
-                    for entangled_obj in obj.group.objects:
-                        if obj != entangled_obj:
-                            start_pos = obj.rect.center
-                            end_pos = entangled_obj.rect.center
-
-                            pygame.draw.line(
-                                self.screen,
-                                (60, 60, 200),
-                                start_pos,
-                                end_pos,
-                                width=2,
-                            )
+        for name, object in self.objects.items():
+            if isinstance(object, QuantumObject):
+                if object.rect.collidepoint(mouse_pos):
+                    for entangled_object in object.group.objects:
+                        if object != entangled_object:
+                            start_pos = self.tiles[object.position].rect.center
+                            end_pos = self.tiles[entangled_object.position].rect.center
+                            pygame.draw.line(self.screen, (60, 60, 200), start_pos, end_pos, width=2)
 
     def run_frame(self):
         """Handle and render one frame."""
@@ -1107,7 +1132,7 @@ class Game:
 
         # A pending level choice may be waiting for the loading screen to
         # appear before the quantum stack is imported.
-        self.menu.update()
+        self.menu.update(elapsed)
         self.editor.update_validation()
 
         self.handle_events()
@@ -1122,7 +1147,7 @@ class Game:
                     elapsed
                 )
 
-                if self.menu.page == "playing":
+                if self.menu.page == "playing" and not self.tutorial.active:
                     self.correlation_elapsed += elapsed
 
                     if self.correlation_elapsed >= 1000:
@@ -1172,7 +1197,8 @@ class Game:
             ):
                 if self.menu.page == "playing":
                     self.menu.open("paused")
-
+                elif self.menu.page == "intro":
+                    self.menu.opening.suspended = True
             self.run_frame()
 
             if self.menu.page != previous_page:
@@ -1201,6 +1227,8 @@ class Game:
             ):
                 if self.menu.page == "playing":
                     self.menu.open("paused")
+                elif self.menu.page == "intro":
+                    self.menu.opening.suspended = True
                 return
 
             previous_page = self.menu.page
@@ -1266,9 +1294,7 @@ class Game:
                         )
 
                     else:
-                        self.hotbar.handle_selection_mouse_down(
-                            event
-                        )
+                        self.hotbar.handle_selection_mouse_down(event)
 
             elif (
                 event.type == MOUSEBUTTONUP
@@ -1332,10 +1358,11 @@ class Game:
             K_s,
             K_a,
             K_d,
+            pygame.K_UP, pygame.K_DOWN, pygame.K_LEFT, pygame.K_RIGHT,
         ):
-            self.update_position(
-                event.key
-            )
+            direction = {pygame.K_UP: K_w, pygame.K_DOWN: K_s,
+                         pygame.K_LEFT: K_a, pygame.K_RIGHT: K_d}.get(event.key, event.key)
+            self.update_position(direction)
 
         elif event.key == K_r:
             self.restart_level()

@@ -11,11 +11,11 @@ from scripts.common_functions import add_text, set_dragging
 
 GATE_DESCRIPTIONS = {
     "X": "Flip the pillar between 0 and 1.",
-    "H": "Create a superposition of 0 and 1.",
-    "Z": "Change the phase of the 1 state.",
-    "RotY": "Rotate the state around the Y axis.",
+    "H": "Create or undo superposition. Two H gates undo each other.",
+    "Z": "Flip the sign of the 1 component. Probabilities stay the same.",
+    "RotY": "Rotate by a fixed angle, changing the mix of 0 and 1.",
     "CNOT": "Flip a target pillar when the control is 1.",
-    "CHAD": "Apply a Hadamard to a target when the control is 1.",
+    "CHAD": "Controlled H: apply H to the target when the control is 1.",
     "SWAP": "Exchange the quantum states of two pillars.",
 }
 
@@ -682,6 +682,10 @@ class Hotbar:
                     description,
                     description_rect,
                 )
+
+        note = "Gates change states; they do not measure them. Only a definite 0 lets you pass."
+        image = font(18).render(note, True, MUTED)
+        screen.blit(image, image.get_rect(midtop=(400, 519)))
 
     def update_slots(self):
         self.rect.width = max(

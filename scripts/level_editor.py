@@ -62,12 +62,7 @@ GATES = (
 #
 # The actual game grid remains 11 x 10.
 #
-# The level editor hides:
-#   - first column: x = 0
-#   - first row:    y = 0
-#   - last row:     y = 9
-#
-# The remaining cells keep their original coordinates.
+# Every cell is visible and editable, retaining its original level coordinates.
 # -------------------------------------------------------------
 
 CELL = 34

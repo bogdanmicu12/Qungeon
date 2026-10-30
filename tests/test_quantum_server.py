@@ -45,6 +45,11 @@ def test_same_origin_flow_and_public_assets(server):
     assert request(app, "GET", "/scripts/quantum_run.py")[0] == 200
     assert request(app, "GET", "/scripts/circuit_view.py")[0] == 200
     assert request(app, "GET", "/scripts/scroll_view.py")[0] == 200
+    assert request(app, "GET", "/scripts/story.py")[0] == 200
+    assert request(app, "GET", "/levels/9.json")[0] == 200
+    for path in ("/web/level-check-worker.js?v=17", "/scripts/tutorial.py",
+                 "/scripts/bloch_inspector.py", "/levels/tutorial_1.json"):
+        assert request(app, "GET", path)[0] == 200, path
 
 
 @pytest.mark.parametrize("path", ["/.git/config", "/.qungeon-quantum/foo.json", "/.env", "/scripts/quantum_service.py",

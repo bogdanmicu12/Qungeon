@@ -26,11 +26,8 @@ box_image = pygame.image.load('./assets/box.png')
 wall_tile_image = pygame.image.load('./assets/wall.png')
 x_gate_image = pygame.image.load('./assets/x-gate.png')
 
-SCALE_FACTOR = 2.25
+SCALE_FACTOR = 4
 BLOCK_SIZE = int(16 * SCALE_FACTOR)
-BOARD_COLUMNS, BOARD_ROWS = 11, 10
-BOARD_ORIGIN_X = (800 - BOARD_COLUMNS * BLOCK_SIZE) // 2
-BOARD_ORIGIN_Y = 84
 PEEK_COUNT = 1000
 
 def exact_probability_zero(world, obj):
@@ -84,8 +81,8 @@ class BaseObject(pygame.sprite.Sprite):
         self.image = pygame.transform.scale(
             image,
             (
-                int(image_rect.width * SCALE_FACTOR),
-                int(image_rect.height * SCALE_FACTOR)
+                max(1, round(image_rect.width * SCALE_FACTOR * getattr(self, "render_scale", 1))),
+                max(1, round(image_rect.height * SCALE_FACTOR * getattr(self, "render_scale", 1)))
             )
         )
         self.colorImage.fill((*color, alpha))
@@ -111,8 +108,8 @@ class LootableObject(BaseObject):
             )
         )
         self.rect = self.image.get_rect()
-        self.rect.x = BOARD_ORIGIN_X + x * BLOCK_SIZE
-        self.rect.y = BOARD_ORIGIN_Y + y * BLOCK_SIZE
+        self.rect.x = x * BLOCK_SIZE
+        self.rect.y = y * BLOCK_SIZE
         self.item = item
         add_text(
             self,
@@ -152,8 +149,8 @@ class QuantumObject(BaseObject, alpha.QuantumObject):
             )
         )
         self.rect = self.image.get_rect()
-        self.rect.x = BOARD_ORIGIN_X + x * BLOCK_SIZE
-        self.rect.y = BOARD_ORIGIN_Y + (y + 1) * BLOCK_SIZE - self.image.get_size()[1]
+        self.rect.x = x * BLOCK_SIZE
+        self.rect.y = (y + 1) * BLOCK_SIZE - self.image.get_size()[1]
 
         self.colorImage = pygame.Surface(
             self.image.get_size()
@@ -330,8 +327,8 @@ class Tile(BaseObject):
             )
         )
         self.rect = self.image.get_rect()
-        self.rect.x = BOARD_ORIGIN_X + x * BLOCK_SIZE
-        self.rect.y = BOARD_ORIGIN_Y + y * BLOCK_SIZE
+        self.rect.x = x * BLOCK_SIZE
+        self.rect.y = y * BLOCK_SIZE
 
 
 class Player(pygame.sprite.Sprite):
@@ -353,14 +350,14 @@ class Player(pygame.sprite.Sprite):
         )
 
         self.rect = self.image.get_rect()
-        self.rect.x = BOARD_ORIGIN_X + x * BLOCK_SIZE
-        self.rect.y = BOARD_ORIGIN_Y + y * BLOCK_SIZE
+        self.rect.x = x * BLOCK_SIZE
+        self.rect.y = y * BLOCK_SIZE
 
     def update_position(self, x, y):
         """Updates the player's position and rectangle."""
         self.position = (x, y)
-        self.rect.x = BOARD_ORIGIN_X + x * BLOCK_SIZE
-        self.rect.y = BOARD_ORIGIN_Y + y * BLOCK_SIZE
+        self.rect.x = x * BLOCK_SIZE
+        self.rect.y = y * BLOCK_SIZE
 
     def distance(self, x, y):
         """Checks if the player is within one tile of the coordinates."""
